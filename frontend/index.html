@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KIT - Knotopian Institute of Technology</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="site"><div class="wrap"><a class="brand" href="/">KIT Voice Assistant</a><nav aria-label="Main"><a href="/login">Login</a><a href="/history">History</a></nav></div></header>
+<main class="wrap">
+<h1 id="college-name">Knotopian Institute of Technology</h1>
+<p class="tagline" id="college-tagline"></p>
+<section class="card" aria-labelledby="about-h"><h2 id="about-h">About</h2><p id="college-desc">Loading…</p>
+<p id="college-contact" class="muted"></p></section>
+<section class="card" aria-labelledby="talk-h"><h2 id="talk-h">Talk to us</h2><p class="muted">Interested in joining? Ask the assistant about courses, fees and admissions.</p><div id="voice"></div></section>
+<section class="card" aria-labelledby="courses-h"><h2 id="courses-h">Courses</h2><p id="courses-msg" class="muted">Loading…</p>
+<div class="table-scroll"><table id="courses" hidden><caption class="muted">Fees in rupees per year</caption><thead><tr><th scope="col">Code</th><th scope="col">Course</th><th scope="col">Department</th><th scope="col" class="num">Min 12th %</th><th scope="col" class="num">Annual fee</th><th scope="col" class="num">Hostel fee</th><th scope="col" class="num">Seats</th></tr></thead><tbody></tbody></table></div></section>
+</main>
+<script type="module" src="/static/home.js"></script>
+</body>
+</html>

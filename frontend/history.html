@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>History - KIT</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="site"><div class="wrap"><a class="brand" href="/">KIT Voice Assistant</a><nav aria-label="Main"><a href="/">Home</a><a href="/assistant">Assistant</a></nav></div></header>
+<main class="wrap">
+<h1>Past conversations</h1><p id="hist-msg" class="muted">Loading…</p>
+<div class="hist" id="hist" hidden><section class="card" aria-label="Conversations"><ul id="hist-list"></ul></section>
+<section class="card" aria-label="Transcript" aria-live="polite"><h2 id="tr-title">Select a conversation</h2><div id="tr" class="vp-log"></div></section></div>
+</main>
+<script type="module" src="/static/history.js"></script>
+</body>
+</html>

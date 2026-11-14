@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login - KIT</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="site"><div class="wrap"><a class="brand" href="/">KIT Voice Assistant</a><nav aria-label="Main"><a href="/">Home</a><a href="/history">History</a></nav></div></header>
+<main class="wrap">
+<section class="card narrow"><h1>Login</h1>
+<form id="login-form"><div class="field"><label for="login_id">Login ID</label><input id="login_id" name="login_id" autocomplete="username" required></div>
+<div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+<p id="login-error" class="error" role="alert" hidden></p><button class="btn" type="submit">Log in</button></form></section>
+</main>
+<script type="module" src="/static/login.js"></script>
+</body>
+</html>
