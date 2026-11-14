@@ -96,7 +96,7 @@ async def test_vox2_nothing_from_old_turn_after_interrupted(make_server):
 
 
 # DEFECT: a one-word interim ("stop") during a reply does not interrupt; BARGE_IN_MIN_WORDS=2 still ignores it (VoiceSession.on_stt / _is_real_speech) (medium).
-@pytest.mark.parametrize("short", [b"Istop", b"Iwait please", b"Iuh"])
+@pytest.mark.parametrize("short", [b"Istop", b"Iwait", b"Ino", b"Ihello", b"Iwait please"])
 async def test_vox2_one_or_two_word_speech_interrupts(make_server, short):
     agent = Agent(["Slow words. "] * 40, delay=0.05)
     _, c = await _open(make_server, agent)
@@ -431,3 +431,27 @@ async def test_vox2_echo_words_of_previous_turn_do_not_whitelist_next_turn(make_
         await c.until("assistant_delta")
         await c.mic(b"Ialpha beta gamma")
         await c.until("interrupted")
+
+
+@pytest.mark.parametrize("filler", [b"Iuh", b"Ium", b"Ihmm", b"Iah", b"Ier", b"Imm"])
+async def test_vox2_lone_filler_interim_does_not_interrupt(make_server, filler):
+    agent = Agent(["Slow words. "] * 40, delay=0.05)
+    _, c = await _open(make_server, agent)
+    async with c:
+        await c.send_json({"type": "text", "text": "tell me"})
+        await c.until("assistant_delta")
+        await c.mic(filler)
+        got = await c.drain(0.6)
+    assert "interrupted" not in types(got) and agent.stopped_early == []
+
+
+@pytest.mark.parametrize("filler", [b"Iuh", b"Ium", b"Ihmm"])
+async def test_vox2_filler_followed_by_real_words_interrupts(make_server, filler):
+    agent = Agent(["Slow words. "] * 40, delay=0.05)
+    _, c = await _open(make_server, agent)
+    async with c:
+        await c.send_json({"type": "text", "text": "tell me"})
+        await c.until("assistant_delta")
+        await c.mic(filler + b" what about hostels")
+        await c.until("interrupted")
+    assert agent.stopped_early == ["tell me"]

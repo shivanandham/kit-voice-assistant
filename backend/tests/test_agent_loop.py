@@ -425,7 +425,7 @@ async def test_agt5_system_blocks_order_and_cache_breakpoint(setup):
     assert system[0]["cache_control"] == {"type": "ephemeral"}
     assert "cache_control" not in system[1]
     assert KNOWLEDGE in system[0]["text"]
-    for volatile in ("Arjun", "2026-11-21", "Saturday", "1234"):
+    for volatile in ("Arjun", "2026-11-21", "Saturday 2026-11-21", "1234"):
         assert volatile not in system[0]["text"]
         assert volatile in system[1]["text"]
     assert ftools.specs_args == ("student", True)
@@ -650,3 +650,28 @@ def test_cor1_prompt_forbids_negatives_from_silence_and_asks_on_misheard_input()
     assert "ask one short question to check what they meant" in text
     assert "Do not ask when the message is clear" in text
     assert "prefer the rule that deals with that case directly" in text
+
+
+def test_cor1_prompt_makes_the_live_system_the_source_of_truth_for_dates():
+    text = " ".join(prompts.INSTRUCTIONS.split())
+    assert "the live college system is the source of truth" in text
+    assert "call the calendar or timetable tool before you answer" in text
+    assert "never answer a date question from a circular or notice alone" in text
+    assert "a teacher's current authority comes from the classes tool" in text
+    assert "give the live system's answer first" in text
+    assert "Never present the document's date as the answer" in text
+    assert '"already passed"' in text
+    assert "Do not volunteer corrections of earlier answers inside an unrelated reply" in text
+    assert "Rules, procedures and amounts still come from the documents" in text
+    assert prompts.stable_text("x") == prompts.stable_text("x")
+
+
+def test_cor1_prompt_separates_kit_facts_from_general_knowledge():
+    text = " ".join(prompts.INSTRUCTIONS.split())
+    assert "Facts about KIT" in text and "come only from the tools and the provided documents" in text
+    assert "General, widely known explanatory knowledge" in text
+    assert "without a citation" in text
+    assert '"In general' in text and 'At KIT, the brochure says' in text
+    assert "General knowledge must never be dressed up as a KIT fact" in text
+    assert "use the lesson notes first" in text and "goes beyond the notes" in text
+    assert "capital of France" in text

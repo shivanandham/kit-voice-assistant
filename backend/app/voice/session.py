@@ -36,7 +36,8 @@ LIFETIME_MESSAGE = (
     "This voice connection has reached its time limit. Please reconnect to carry on where you"
     " left off."
 )
-BARGE_IN_MIN_WORDS = 2  # interim speech needs this many new words to interrupt a reply
+BARGE_IN_MIN_WORDS = 1  # one real word ("stop", "wait") interrupts a reply
+FILLERS = frozenset({"uh", "um", "umm", "hmm", "hm", "ah", "er", "erm", "mm", "mhm"})
 FIRST_CLAUSE_CHARS = 30  # flush the first clause at a comma once it is this long
 LONG_CLAUSE_CHARS = 160  # later clauses flush at a comma past this length
 HARD_SPLIT_CHARS = 300  # no punctuation at all: split at a space past this length
@@ -390,9 +391,13 @@ class VoiceSession:
         if started:
             await self.send({"type": "audio_end"})
 
-    def _is_real_speech(self, text: str, min_words: int = BARGE_IN_MIN_WORDS) -> bool:
+    def _is_real_speech(
+        self, text: str, min_words: int = BARGE_IN_MIN_WORDS, skip_fillers: bool = False
+    ) -> bool:
         """Enough words, and not just the assistant's own words echoing back through the mic."""
         words = _words(text)
+        if skip_fillers:  # a bare "uh" or "hmm" does not interrupt on its own
+            words = [w for w in words if w not in FILLERS]
         if len(words) < min_words:
             return False
         if is_echo(words, _words(self.reply_text)):
@@ -414,7 +419,7 @@ class VoiceSession:
             self.in_speech = True
             self.last_interim = event.text
             if self.replying() and not self.barged:
-                if not self._is_real_speech(event.text):
+                if not self._is_real_speech(event.text, skip_fillers=True):
                     return  # likely echo or a blip; the client barges in on any transcript
                 self.barged = True
                 await self.interrupt()

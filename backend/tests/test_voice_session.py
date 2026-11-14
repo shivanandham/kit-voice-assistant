@@ -498,3 +498,31 @@ def test_vox2_verbatim_echo_of_the_reply_is_still_ignored(setup):
         frames = recv_until(ws, "audio_end", limit=400)
     assert "interrupted" not in events(frames) and "transcript" not in events(frames)
     assert len(agent.calls) == 1
+
+
+@pytest.mark.parametrize("word", ["stop", "wait", "no", "okay", "Priya"])
+def test_vox2_one_real_word_interrupts(setup, word):
+    agent = Agent(["Slow words. "] * 20, 0.05)
+    client, _, _ = setup(agent)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_json({"type": "text", "text": "talk"})
+        recv_until(ws, "assistant_delta")
+        ws.send_bytes(frame(b"I" + word.encode()))
+        recv_until(ws, "interrupted")
+    assert agent.cancelled == 1
+
+
+@pytest.mark.parametrize("sound", sorted(voice.FILLERS) + ["uh um", "Hmm."])
+def test_vox2_bare_hesitation_does_not_interrupt(setup, sound):
+    agent = Agent(["Slow start. "] + ["Still talking. "] * 6, 0.05)
+    client, _, _ = setup(agent)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_json({"type": "text", "text": "talk"})
+        recv_until(ws, "assistant_delta")
+        ws.send_bytes(frame(b"I" + sound.encode()))
+        frames = recv_until(ws, "audio_end")
+    assert "interrupted" not in events(frames) and agent.cancelled == 0
