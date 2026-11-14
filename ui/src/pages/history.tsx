@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 
-import { NavLink, SiteHeader } from "@/components/kit/site-header"
+import { SiteHeader } from "@/components/kit/site-header"
 import { SourceList } from "@/components/kit/source-list"
 import { Message, MessageContent } from "@/components/ui/message"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -26,7 +26,7 @@ export function HistoryPage() {
   }
   return (
     <>
-      <SiteHeader><NavLink href="/">Home</NavLink><NavLink href="/assistant">Assistant</NavLink></SiteHeader>
+      <SiteHeader />
       <main className="mx-auto max-w-6xl px-4 py-8">
         <h1 className="mb-6 text-2xl font-semibold">Past conversations</h1>
         {err ? <p className="text-muted-foreground">{err}</p> : !items ? <Skeleton className="h-40 w-full" /> : !items.length ? (

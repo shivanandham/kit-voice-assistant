@@ -142,6 +142,14 @@ export class VoiceEngine {
     return true
   }
 
+  /** Send now: ask the server to end the current utterance and start the turn with what it has
+   * heard so far (CONTRACT "Send now"). Returns false when there is nothing to send. */
+  finalize(): boolean {
+    if (!this.micOn || !this.snap.interim || !this.ws || this.ws.readyState !== WebSocket.OPEN) return false
+    this.send({ type: "finalize" })
+    return true
+  }
+
   /** Microphone level 0..1 for the visual. */
   inputLevel(): number { return this.level(this.inAnalyser) }
   /** Playback level 0..1 for the visual. */

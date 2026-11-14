@@ -72,8 +72,12 @@ export function sourceText(s: Source | null | undefined): string {
   if (s.kind === "college_record") return s.label || "College system"
   const parts: string[] = []
   if (s.document_title) parts.push(s.document_title + (s.version ? " (" + s.version + ")" : ""))
-  if (s.section) parts.push("rule " + s.section)
-  else if (s.heading) parts.push(s.heading)
+  const title = s.document_title || ""
+  // Only the Student Handbook has rules. A circular or notice whose section is its own number
+  // (for example "12/2026") gets no section part.
+  const ownNumber = !!s.section && (/^\d+\/\d{4}$/.test(s.section) || title.includes(s.section + "/") || title.includes(s.section) && s.section.includes("/"))
+  if (s.section && !ownNumber) parts.push((/handbook/i.test(title) ? "rule " : "section ") + s.section)
+  else if (!s.section && s.heading) parts.push(s.heading)
   if (s.page_start != null) {
     parts.push(s.page_end != null && s.page_end !== s.page_start ? "pages " + s.page_start + "–" + s.page_end : "page " + s.page_start)
   }

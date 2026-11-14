@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { Loader2Icon } from "lucide-react"
 
-import { NavLink, SiteHeader } from "@/components/kit/site-header"
+import { SiteHeader } from "@/components/kit/site-header"
+import { isLoggedIn, loadMe } from "@/lib/me"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,6 +15,7 @@ export function LoginPage() {
   const [pw, setPw] = useState("")
   const [err, setErr] = useState("")
   const [busy, setBusy] = useState(false)
+  useEffect(() => { loadMe().then((m) => { if (isLoggedIn(m)) location.replace("/assistant") }) }, [])
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setErr("")
@@ -28,7 +30,7 @@ export function LoginPage() {
   }
   return (
     <>
-      <SiteHeader><NavLink href="/">Home</NavLink><NavLink href="/history">History</NavLink></SiteHeader>
+      <SiteHeader />
       <main className="mx-auto flex max-w-6xl justify-center px-4 py-12 sm:py-20">
         <Card className="w-full max-w-sm">
           <CardHeader>

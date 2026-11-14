@@ -7,7 +7,7 @@ Wants=network-online.target
 User=deploy
 WorkingDirectory=/home/deploy/kit-voice-assistant
 EnvironmentFile=/home/deploy/kit-assistant.env
-ExecStart=/home/deploy/kit-voice-assistant/.venv/bin/uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 5210
+ExecStart=/home/deploy/kit-voice-assistant/.venv/bin/uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 5210 --ws-max-size 65536
 Restart=always
 RestartSec=2
 

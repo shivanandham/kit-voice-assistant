@@ -252,3 +252,11 @@ unchanged text.
 
 **Frontend** — shows a compact "Sources" list under the assistant's reply and in history, for example
 "Student Handbook 2026 (2026.1), rule 6.4.3, page 14" or "College system: attendance".
+
+## Send now (added)
+
+Client to server: `{"type":"finalize"}` — "send what you have heard so far". The server ends the
+current utterance immediately: it asks the speech service to finalise, uses the final transcript if
+one arrives within about half a second and otherwise the latest interim text, sends it as a final
+`transcript` and starts the turn. The rest of that utterance, if the speech service finalises it
+later, is discarded so the turn is not started twice. If nothing has been heard, the message is ignored.

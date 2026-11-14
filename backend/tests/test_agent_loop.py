@@ -675,3 +675,13 @@ def test_cor1_prompt_separates_kit_facts_from_general_knowledge():
     assert "General knowledge must never be dressed up as a KIT fact" in text
     assert "use the lesson notes first" in text and "goes beyond the notes" in text
     assert "capital of France" in text
+
+
+def test_out1_prompt_relays_identifiers_exactly_as_returned():
+    text = " ".join(prompts.INSTRUCTIONS.split())
+    assert "exactly as the college system returns them, in digits" in text
+    assert '"reference number 121"' in text and "say them once" in text
+    assert "admissions@kit.ac.in" in text
+    assert "k i t dot" not in text and "Spell out email addresses" not in text
+    assert "Quantities, percentages, money, dates and times keep their spoken forms" in text
+    assert prompts.stable_text("x") == prompts.stable_text("x")

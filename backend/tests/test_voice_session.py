@@ -526,3 +526,93 @@ def test_vox2_bare_hesitation_does_not_interrupt(setup, sound):
         ws.send_bytes(frame(b"I" + sound.encode()))
         frames = recv_until(ws, "audio_end")
     assert "interrupted" not in events(frames) and agent.cancelled == 0
+
+
+class FinalizingStt(FakeStt):
+    """Deepgram's answer to Finalize: the final utterance for what was said so far."""
+
+    def __init__(self, final: str | None) -> None:
+        super().__init__()
+        self.final = final
+        self.finalized = 0
+
+    async def finalize(self) -> None:
+        self.finalized += 1
+        if self.final is not None:
+            self._q().put_nowait(SttEvent("utterance", self.final))
+
+
+def build(stt, agent):
+    tts = FakeTts()
+    app = FastAPI()
+    app.include_router(voice.build_router(agent, lambda: stt, lambda: tts))
+    return TestClient(app)
+
+
+def test_vox_finalize_uses_interim_text_and_drops_the_late_final(setup):
+    agent = Agent(["Okay."])
+    stt = FakeStt()
+    client = build(stt, agent)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_bytes(frame(b"S"))
+        ws.send_bytes(frame(b"Iwhat is the hostel"))
+        assert ws.receive_json()["final"] is False
+        ws.send_json({"type": "finalize"})
+        frames = recv_until(ws, "audio_end")
+        assert frames[0] == {"type": "transcript", "final": True, "text": "what is the hostel"}
+        ws.send_bytes(frame(b"Uwhat is the hostel fee"))  # Deepgram's late final: discarded
+        ws.send_bytes(frame(b"Unext question"))  # the next utterance works normally
+        later = recv_until(ws, "audio_end")
+    assert later[0] == {"type": "transcript", "final": True, "text": "next question"}
+    assert agent.calls == ["what is the hostel", "next question"]
+
+
+def test_vox_finalize_prefers_the_final_from_deepgram(setup):
+    agent = Agent(["Okay."])
+    stt = FinalizingStt("what is the hostel fee")
+    client = build(stt, agent)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_bytes(frame(b"Iwhat is the hostel"))
+        ws.receive_json()
+        ws.send_json({"type": "finalize"})
+        frames = recv_until(ws, "audio_end")
+        ws.send_bytes(frame(b"Unext one"))
+        recv_until(ws, "audio_end")
+    assert frames[0] == {"type": "transcript", "final": True, "text": "what is the hostel fee"}
+    assert stt.finalized == 1
+    assert agent.calls == ["what is the hostel fee", "next one"]
+
+
+def test_vox_finalize_with_nothing_heard_does_nothing(setup):
+    agent = Agent(["Okay."])
+    stt = FinalizingStt(None)
+    client = build(stt, agent)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_json({"type": "finalize"})
+        ws.send_json({"type": "text", "text": "typed"})
+        frames = recv_until(ws, "audio_end")
+    assert "transcript" not in events(frames) and "error" not in events(frames)
+    assert agent.calls == ["typed"] and stt.finalized == 0
+
+
+def test_vox_finalize_during_a_reply_interrupts_it(setup):
+    agent = Agent(["Slow words. "] * 20, 0.05)
+    stt = FakeStt()
+    client = build(stt, agent)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_json({"type": "text", "text": "talk"})
+        recv_until(ws, "assistant_delta")
+        ws.send_bytes(frame(b"Iwait a second"))
+        recv_until(ws, "interrupted")
+        ws.send_json({"type": "finalize"})
+        frames = recv_until(ws, "assistant_delta")
+    assert {"type": "transcript", "final": True, "text": "wait a second"} in frames
+    assert agent.calls[-1] == "wait a second"

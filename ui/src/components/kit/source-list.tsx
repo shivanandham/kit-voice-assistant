@@ -4,12 +4,12 @@ import { Sources, SourcesContent, SourcesTrigger } from "@/components/ai-element
 import { sourceText } from "@/lib/api"
 import type { Source } from "@/voice/engine"
 
-/** Compact "Sources" list under a reply (AI Elements Sources, open by default). */
+/** Compact "Sources" list under a reply (AI Elements Sources, collapsed until opened). */
 export function SourceList({ sources }: { sources?: Source[] | null }) {
   const items = (sources ?? []).map((s) => ({ s, text: sourceText(s) })).filter((x) => x.text)
   if (!items.length) return null
   return (
-    <Sources {...({ defaultOpen: true } as object)} className="mt-2 mb-0 text-muted-foreground">
+    <Sources className="mt-2 mb-0 text-muted-foreground">
       <SourcesTrigger
         count={items.length}
         className="group/src rounded-sm text-xs font-medium hover:text-foreground"

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, type FormEvent, type KeyboardEvent } from "react"
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 import { Loader2Icon, MicIcon, MicOffIcon, SendIcon, SquareIcon } from "lucide-react"
 
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion"
@@ -50,8 +50,24 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
   const left = MAX_TYPED - text.length
   const last = s.messages[s.messages.length - 1]
 
+  // Send now: busy until the final transcript clears the interim text, or two seconds pass.
+  const [sending, setSending] = useState(false)
+  const sendTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => {
+    if (!s.interim) { setSending(false); clearTimeout(sendTimer.current) }
+  }, [s.interim])
+  useEffect(() => () => clearTimeout(sendTimer.current), [])
+  const canSendNow = s.micOn && !!s.interim
+  const sendNow = () => {
+    if (sending || !engine.finalize()) return
+    setSending(true)
+    clearTimeout(sendTimer.current)
+    sendTimer.current = setTimeout(() => setSending(false), 2000)
+  }
+
   const submit = (e?: FormEvent) => {
     e?.preventDefault()
+    if (!text.trim() && canSendNow) { sendNow(); return }
     if (engine.sendText(text)) setText("")
   }
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -103,11 +119,6 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
               </Button>
             )}
           </div>
-          {s.interim && (
-            <p className="w-full truncate text-center text-sm text-muted-foreground italic sm:text-left" aria-live="off">
-              “{s.interim}”
-            </p>
-          )}
         </div>
       </div>
 
@@ -178,6 +189,18 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
             ))}
           </Suggestions>
         )}
+        {canSendNow && (
+          <div className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2">
+            <p className="min-w-0 flex-1 truncate text-sm" aria-live="off">
+              <span className="sr-only">Heard so far: </span>“{s.interim}”
+            </p>
+            <Button type="button" size="sm" className="shrink-0 rounded-full" onClick={sendNow}
+              disabled={sending} aria-busy={sending} aria-label="Send what I said">
+              {sending ? <Loader2Icon aria-hidden className="animate-spin" /> : <SendIcon aria-hidden />}
+              {sending ? "Sending…" : "Send"}
+            </Button>
+          </div>
+        )}
         <form onSubmit={submit} className="flex items-end gap-2">
           <label htmlFor="vp-text" className="sr-only">Type a message</label>
           <Textarea
@@ -192,7 +215,7 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
             aria-describedby={left < 100 ? "vp-count" : undefined}
             className="max-h-32 min-h-11 resize-none bg-card"
           />
-          <Button type="submit" size="icon" className="size-11 shrink-0" aria-label="Send" disabled={!text.trim()}>
+          <Button type="submit" size="icon" className="size-11 shrink-0" aria-label={!text.trim() && canSendNow ? "Send what I said" : "Send"} disabled={(!text.trim() && !canSendNow) || (!text.trim() && sending)}>
             <SendIcon aria-hidden />
           </Button>
         </form>

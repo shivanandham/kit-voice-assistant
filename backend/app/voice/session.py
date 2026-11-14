@@ -24,6 +24,8 @@ log = logging.getLogger(__name__)
 # Input sizes (ABU10) and socket limits (ABU3) come from app.limits settings.
 PCM_BYTES_PER_SECOND = 32_000  # 16 kHz mono PCM16
 WATCHDOG_INTERVAL_S = 1.0  # how often idle time and socket lifetime are checked
+FINALIZE_WAIT_S = 0.5  # "send now" waits this long for Deepgram's final transcript
+SKIP_TAIL_S = 5.0  # the late tail of an utterance ended early is ignored at most this long
 SESSION_RECHECK_S = 30.0  # an idle socket notices a logout within this time
 SESSION_ENDED = "Your session has ended. Please sign in again to continue."
 TTS_FAILED = "Sorry, I couldn't say that reply out loud. It's shown as text instead."
@@ -244,6 +246,8 @@ class VoiceSession:
         self.utterance_bytes = 0  # audio sent since the current utterance began (ABU3)
         self.in_speech = False
         self.skip_utterance = False  # the capped utterance's own late events are dropped
+        self.skip_until = 0.0  # ...but never for longer than SKIP_TAIL_S
+        self._final_waiter: asyncio.Future[str] | None = None
         self.last_interim = ""
         self.gate = EnergyGate() if get_settings().voice_gate_enabled else None
         self.voice_used_up = False  # ABU11 daily voice time spent: audio is dropped
@@ -411,8 +415,10 @@ class VoiceSession:
             await self.send({"type": "error", "message": STT_FAILED})
         elif event.kind == "speech_started":
             self.in_speech = True
-        elif self.skip_utterance:
-            if event.kind == "utterance":  # the tail of an utterance cut off at the cap
+        elif event.kind == "utterance" and self._final_waiter and not self._final_waiter.done():
+            self._final_waiter.set_result(event.text.strip())  # the answer to "send now"
+        elif self.skip_utterance and time.monotonic() < self.skip_until:
+            if event.kind == "utterance":  # the tail of an utterance already ended early
                 self.skip_utterance = False
         elif event.kind == "interim":
             self.last_activity = limits.now()
@@ -426,6 +432,29 @@ class VoiceSession:
             await self.send({"type": "transcript", "final": False, "text": event.text})
         elif event.kind == "utterance" and event.text.strip():
             await self._end_utterance(event.text.strip())
+
+    async def send_now(self) -> None:
+        """ "Send now": end the current utterance at once and start its turn."""
+        if self.skip_utterance or not (self.last_interim or self.in_speech):
+            return  # nothing heard
+        self._final_waiter = asyncio.get_running_loop().create_future()
+        text = ""
+        try:
+            finalize = getattr(self.stt, "finalize", None)
+            if finalize is not None:
+                with contextlib.suppress(Exception):
+                    await finalize()
+            with contextlib.suppress(TimeoutError):
+                text = await asyncio.wait_for(asyncio.shield(self._final_waiter), FINALIZE_WAIT_S)
+        finally:
+            self._final_waiter = None
+        if not text:  # no final in time: use what we have, and drop the late final
+            text = self.last_interim.strip()
+            self.skip_utterance, self.skip_until = True, time.monotonic() + SKIP_TAIL_S
+        if text:
+            await self._end_utterance(text)
+        else:
+            self.in_speech, self.utterance_bytes = False, 0
 
     async def _end_utterance(self, text: str) -> None:
         """A complete user utterance: forward it as final and start a turn."""
@@ -491,7 +520,7 @@ class VoiceSession:
             self.utterance_bytes += len(pcm)
             cap = limits.limit("limit_utterance_seconds") * PCM_BYTES_PER_SECOND
             if self.utterance_bytes >= cap and self.last_interim:  # ABU3: end it here
-                self.skip_utterance = True
+                self.skip_utterance, self.skip_until = True, time.monotonic() + SKIP_TAIL_S
                 finalize = getattr(self.stt, "finalize", None)
                 if finalize is not None:
                     await finalize()
@@ -523,6 +552,8 @@ class VoiceSession:
                 await self.start_turn(text)  # not echoed: the client shows typed text itself
         elif kind == "interrupt":
             await self.interrupt()
+        elif kind == "finalize":
+            await self.send_now()
         else:
             await self.send({"type": "error", "message": "Unknown message type."})
 

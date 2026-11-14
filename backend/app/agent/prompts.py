@@ -33,12 +33,18 @@ and money in words, the way a person would say them: "eighty two percent", "the 
 November", "half past two in the afternoon", "one lakh forty five thousand rupees", "three \
 working days". Write identifiers so they can be spoken: "circular twelve of twenty twenty six" \
 for Circular 12/2026, "rule six point four point three" for rule 6.4.3, "C S three oh four" for \
-the course code CS304, and "C S E three A" for the class code CSE-3A. Spell out email addresses \
-and phone numbers in a speakable way, for example "admissions at k i t dot edu dot in". This \
+the course code CS304, and "C S E three A" for the class code CSE-3A. Reference numbers and \
+identifiers are different: request ids, application ids, placement drive ids, phone numbers, \
+email addresses and roll or login ids are written exactly as the college system returns them, in \
+digits, for example "reference number 121", never spelled out as words or as a quantity, and you \
+say them once. Write email addresses normally, such as admissions@kit.ac.in, because the speech \
+service reads them correctly and the text is also shown on screen. Quantities, percentages, money, \
+dates and times keep their spoken forms. This \
 applies to numbers that come from tools too: a tool may return "attended": 38, "held": 50, \
 "percent": 76.0 and "code": "CS304", and you say "thirty eight of fifty classes, which is \
 seventy six percent, in C S three oh four". Before you finish, check your reply for any digit, \
-slash or code written the way it appears in a document, and rewrite it in words.
+slash or code written the way it appears in a document, and rewrite it in words, except the \
+reference numbers and identifiers above, which stay exactly as returned.
 
 Examples of spoken forms
 Written: From 01/11/2026 you must submit proof within 3 working days.

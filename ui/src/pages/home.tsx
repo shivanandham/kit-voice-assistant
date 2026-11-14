@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react"
 import { MailIcon, MapPinIcon, PhoneIcon, GlobeIcon } from "lucide-react"
 
-import { NavLink, SiteHeader } from "@/components/kit/site-header"
+import { SiteHeader } from "@/components/kit/site-header"
+import { isLoggedIn, PROMPTS, useMe } from "@/lib/me"
 import { VoiceAssistant } from "@/components/kit/voice-assistant"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getJSON, rupees, type College, type Course } from "@/lib/api"
 
-const VISITOR_PROMPTS = ["Which courses do you offer?", "What are the fees for B.Tech?", "How do I apply?", "Is there a hostel?"]
 
 export function HomePage() {
   const [college, setCollege] = useState<College | null>(null)
@@ -19,9 +19,11 @@ export function HomePage() {
     getJSON<Course[]>("/api/public/courses").then(setCourses).catch(() => setCoursesErr("Courses are unavailable right now."))
   }, [])
   const k = college?.contact ?? {}
+  const me = useMe()
+  const user = isLoggedIn(me) ? me.user : null
   return (
     <>
-      <SiteHeader><NavLink href="/history">History</NavLink><NavLink href="/login">Log in</NavLink></SiteHeader>
+      <SiteHeader />
       <main className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
         <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
           <div className="flex flex-col gap-5 lg:pt-4">
@@ -42,9 +44,16 @@ export function HomePage() {
             </ul>
           </div>
           <div className="flex min-w-0 flex-col gap-3">
-            <h2 className="text-lg font-semibold">Talk to us</h2>
-            <p className="-mt-2 text-sm text-muted-foreground">Ask about courses, fees and admissions by voice or text.</p>
-            <VoiceAssistant suggestions={VISITOR_PROMPTS} />
+            <h2 className="text-lg font-semibold">{user ? "Your assistant" : "Talk to us"}</h2>
+            {user ? (
+              <p className="-mt-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm">
+                You are logged in as {user.full_name || user.login_id}, and this assistant uses your account.{" "}
+                <a href="/assistant" className="font-medium text-primary underline underline-offset-4">Go to your assistant</a>
+              </p>
+            ) : (
+              <p className="-mt-2 text-sm text-muted-foreground">Ask about courses, fees and admissions by voice or text.</p>
+            )}
+            {me !== undefined && <VoiceAssistant suggestions={PROMPTS[user && me ? me.role : "visitor"] ?? []} />}
           </div>
         </div>
 

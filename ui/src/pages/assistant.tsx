@@ -1,34 +1,25 @@
 import { useEffect, useState } from "react"
-import { LogOutIcon } from "lucide-react"
 
-import { NavLink, SiteHeader } from "@/components/kit/site-header"
+import { SiteHeader } from "@/components/kit/site-header"
+import { isLoggedIn, loadMe, PROMPTS } from "@/lib/me"
 import { VoiceAssistant } from "@/components/kit/voice-assistant"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { getJSON, logout, type Me } from "@/lib/api"
+import type { Me } from "@/lib/api"
 
-const PROMPTS: Record<string, string[]> = {
-  student: ["What is my attendance?", "What's on my timetable today?", "Apply for leave tomorrow", "Which placement drives can I join?"],
-  teacher: ["Show pending leave requests", "How is my class attendance?", "Which classes do I teach?"],
-}
 
 export function AssistantPage() {
   const [me, setMe] = useState<Me | null>(null)
   useEffect(() => {
-    getJSON<Me>("/api/me").then((m) => {
-      if (m.role === "visitor" || !m.user) location.href = "/login"
-      else setMe(m)
-    }).catch(() => { location.href = "/login" })
+    loadMe().then((m) => {
+      if (isLoggedIn(m)) setMe(m)
+      else location.href = "/login"
+    })
   }, [])
   const u = me?.user
-  const onLogout = async () => { await logout(); location.href = "/" }
   return (
     <>
-      <SiteHeader>
-        <NavLink href="/history">History</NavLink>
-        <Button type="button" variant="ghost" size="sm" onClick={onLogout}><LogOutIcon aria-hidden />Log out</Button>
-      </SiteHeader>
+      <SiteHeader />
       <main className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8">
         {!me ? <Skeleton className="h-14 w-full" /> : (
           <div className="flex flex-wrap items-center justify-between gap-3">

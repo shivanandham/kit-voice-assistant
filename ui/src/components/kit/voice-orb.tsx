@@ -18,7 +18,7 @@ export default function VoiceOrb({ status, dark, inputLevel, outputLevel }: Prop
   return (
     <Orb
       className="size-full"
-      colors={dark ? ["#5cc79d", "#1d6b50"] : ["#a7e3c9", "#2f8566"]}
+      colors={dark ? ["#60a5fa", "#4f46e5"] : ["#bfdbfe", "#818cf8"]}
       agentState={AGENT[status]}
       volumeMode={live ? "manual" : "auto"}
       getInputVolume={() => (status === "listening" ? 0.25 + inputLevel() * 0.9 : 0.5)}
