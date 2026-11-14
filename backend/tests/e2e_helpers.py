@@ -138,6 +138,15 @@ class ModelCall:
     def tool_names(self) -> list[str]:
         return [t["name"] for t in self.kwargs.get("tools") or []]
 
+    def results_text(self) -> str:
+        """The system blocks and every tool result in the request (not the model's own words)."""
+        parts = [self.system_text]
+        for m in self.kwargs.get("messages") or []:
+            for b in _blocks(m["content"]):
+                if _f(b, "type") == "tool_result":
+                    parts.append(str(_f(b, "content")))
+        return "\n".join(parts)
+
     def text(self) -> str:
         """Everything the model was shown: system blocks, messages and tool definitions."""
         return dump({"system": self.kwargs.get("system"), "messages": self.kwargs.get("messages"),
@@ -282,10 +291,10 @@ class Socket:
         await self.inbox.put({"type": "websocket.disconnect", "code": 1000})
         try:
             await asyncio.wait_for(asyncio.shield(self.task), 5)
-        except Exception:
+        except TimeoutError:
             self.task.cancel()
-            with contextlib.suppress(BaseException):
-                await self.task
+        with contextlib.suppress(BaseException):
+            await self.task
 
     async def recv(self, timeout: float = 8.0) -> dict | bytes | None:
         """Next frame; None once the server closed the socket."""
@@ -330,6 +339,10 @@ class Socket:
         if how == "typed":
             await self.send_json({"type": "text", "text": user_text})
         else:
+            if any(isinstance(f, bytes) for f in self.frames):
+                # let the client finish "playing" the last reply, as a person would before
+                # speaking again (speech during playback that repeats the reply is echo)
+                await asyncio.sleep(0.4)
             await self.send_bytes(frame(b"S"))
             await self.send_bytes(frame(b"U" + user_text.encode()))
         loop_ = asyncio.get_running_loop()
@@ -629,4 +642,4 @@ async def e2e(asgi_app, fake_college, browser, monkeypatch, caplog):
 
 TURN_MODES = pytest.mark.parametrize("how", ["typed", "voice"])
 
-__all__ = ["e2e", "USERS"]
+__all__ = ["USERS", "e2e"]

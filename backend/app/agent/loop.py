@@ -276,7 +276,7 @@ async def warm_cache() -> None:
 def _thinking(settings: Any) -> dict:
     """Extra request arguments for the thinking mode: none for the model's default (adaptive),
     or thinking disabled when settings.llm_thinking is "disabled" (shorter time to first text)."""
-    if getattr(settings, "llm_thinking", "adaptive") == "disabled":
+    if settings.llm_thinking == "disabled":
         return {"thinking": {"type": "disabled"}}
     return {}
 

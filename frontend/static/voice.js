@@ -15,9 +15,10 @@ export function createVoicePanel(root) {
   const talkBtn = el("button", "vp-talk", "Talk");
   talkBtn.type = "button";
   talkBtn.setAttribute("aria-pressed", "false");
-  const stopBtn = el("button", "vp-stop", "Stop");
+  const stopBtn = el("button", "vp-stop", "Stop speaking");
+  stopBtn.disabled = true;
   stopBtn.type = "button";
-  stopBtn.setAttribute("aria-label", "Stop the assistant speaking");
+  const hintEl = el("p", "vp-hint");
   const errorEl = el("p", "vp-error");
   errorEl.setAttribute("role", "alert");
   errorEl.hidden = true;
@@ -44,7 +45,7 @@ export function createVoicePanel(root) {
   form.append(input, sendBtn);
   const controls = el("div", "vp-controls");
   controls.append(talkBtn, stopBtn);
-  root.append(stateEl, controls, errorEl, logEl, interimEl, toolEl, label, form, counter);
+  root.append(stateEl, controls, hintEl, errorEl, logEl, interimEl, toolEl, label, form, counter);
 
   // ---------- state ----------
   let ws = null;
@@ -71,6 +72,13 @@ export function createVoicePanel(root) {
     const names = { idle: "Idle", listening: "Listening", thinking: "Thinking", speaking: "Speaking" };
     stateEl.textContent = names[s] + (s === "listening" && hearing ? " (hearing you)" : "");
     stateEl.className = "vp-state state-" + s;
+    stopBtn.disabled = !(s === "thinking" || s === "speaking");
+    hintEl.textContent = {
+      idle: "Press Talk and ask your question.",
+      listening: "Listening \u2014 just speak. You can talk over the assistant to interrupt.",
+      thinking: "Thinking \u2014 press Stop speaking to cancel.",
+      speaking: "Speaking \u2014 press Stop speaking or just start talking.",
+    }[s];
   }
   function refreshState() {
     if (isPlaying()) setState("speaking");

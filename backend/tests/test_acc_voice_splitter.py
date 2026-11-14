@@ -108,7 +108,6 @@ def test_vox3_streaming_in_pieces_gives_same_sentences_as_one_big_chunk(text, st
     assert split(text, step) == split(text)
 
 
-# DEFECT: sentences differ with chunking once the early/long clause flush at commas kicks in (SentenceSplitter._next flushes on buffer length) (low).
 @pytest.mark.parametrize(
     "text",
     [

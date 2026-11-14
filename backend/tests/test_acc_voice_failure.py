@@ -122,7 +122,6 @@ async def test_rel1_stt_recovers_when_upstream_comes_back(make_server):
     assert "hello again after outage" in agent.texts
 
 
-# DEFECT: when the STT event stream raises mid-utterance the session swallows it: no `error` event and voice input is dead (VoiceSession._pump_stt) (medium).
 async def test_rel1_stt_dropping_mid_utterance_gives_error_event(make_server):
     srv, agent, c, token = await _open(make_server)
     async with c:
@@ -135,7 +134,6 @@ async def test_rel1_stt_dropping_mid_utterance_gives_error_event(make_server):
     assert_clean(c.frames, token)
 
 
-# DEFECT: after the STT event stream dies the pump is never restarted, so later speech is ignored silently (VoiceSession._pump_stt/on_audio) (medium).
 async def test_rel1_voice_works_again_after_stt_stream_failure(make_server):
     srv, agent, c, _ = await _open(make_server)
     async with c:
@@ -158,7 +156,6 @@ async def test_rel1_stt_error_event_becomes_error_and_socket_usable(make_server)
         await _next_turn_works(c, agent)
 
 
-# DEFECT: STT error text is forwarded to the client verbatim, so a secret in it would reach the browser (VoiceSession.on_stt) (low).
 async def test_ac5_stt_error_text_with_a_secret_is_not_forwarded(make_server):
     srv, agent, c, token = await _open(make_server)
     async with c:
@@ -201,7 +198,6 @@ TTS_ERRORS = [
 ]
 
 
-# DEFECT: a TTS failure on the first sentence is only logged; the client never receives an `error` event (VoiceSession._speak) (high).
 @pytest.mark.parametrize("exc_factory", TTS_ERRORS, ids=["runtime", "conn", "readtimeout", "http401", "timeout", "asynctimeout"])
 async def test_agt6_tts_failure_on_first_sentence_gives_error_event_and_usable_socket(make_server, exc_factory):
     state, fail = _fail_first_turn(exc_factory)
@@ -220,7 +216,6 @@ async def test_agt6_tts_failure_on_first_sentence_gives_error_event_and_usable_s
     assert_clean(c.frames, token)
 
 
-# DEFECT: a TTS failure on a later sentence is only logged; no `error` event is sent (VoiceSession._speak) (high).
 @pytest.mark.parametrize("exc_factory", TTS_ERRORS[:3], ids=["runtime", "conn", "readtimeout"])
 async def test_agt6_tts_failure_on_later_sentence_gives_error_event(make_server, exc_factory):
     tts = FakeTts(fail=lambda t, n: exc_factory() if n == 1 else None)

@@ -390,3 +390,111 @@ def test_cit2_citations_dropped_when_interrupted(setup):
         ws.send_json({"type": "start", "conversation_id": "conv-mine"})
         frames += recv_until(ws, "ready")
     assert "citations" not in events(frames)
+
+
+def test_ac6_turn_after_logout_is_refused_and_socket_closed(setup, monkeypatch):
+    agent = Agent(["Hello."])
+    client, _, tts = setup(agent)
+    alive = [True]
+
+    async def session(ws):
+        return CTX if alive[0] else None
+
+    monkeypatch.setattr(auth, "session_from_websocket", session)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_json({"type": "text", "text": "first"})
+        recv_until(ws, "audio_end")
+        alive[0] = False  # logged out elsewhere
+        ws.send_json({"type": "text", "text": "second"})
+        err = recv_until(ws, "error")[-1]  # `interrupted` may come first: audio is playing
+        assert "sign in" in err["message"]
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_json()
+    assert exc.value.code == 4401
+    assert agent.calls == ["first"] and len(tts.started) == 1
+
+
+def test_ac6_idle_socket_closed_after_logout(setup, monkeypatch):
+    monkeypatch.setattr(voice, "WATCHDOG_INTERVAL_S", 0.01)
+    monkeypatch.setattr(voice, "SESSION_RECHECK_S", 0.0)
+    client, _, _ = setup(Agent([]))
+    alive = [True]
+
+    async def session(ws):
+        return CTX if alive[0] else None
+
+    monkeypatch.setattr(auth, "session_from_websocket", session)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        alive[0] = False
+        assert ws.receive_json()["type"] == "error"
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_json()
+    assert exc.value.code == 4401
+
+
+COURSE_REPLY = [
+    "Slow: KIT offers B.Tech in computer science, electronics and mechanical. ",
+    "The fee for computer science is one lakh twenty five thousand per year. ",
+    "What else would you like to know about the hostel? ",
+] + ["The hostel fee is sixty thousand. "] * 10
+
+
+def test_vox2_follow_up_made_of_reply_words_interrupts_and_becomes_a_turn(setup):
+    agent = Agent(COURSE_REPLY, 0.05)
+    client, _, _ = setup(agent)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_json({"type": "text", "text": "What courses do you offer and what are the fees?"})
+        recv_until(ws, "assistant_delta")
+        recv_until(ws, "assistant_delta")
+        recv_until(ws, "assistant_delta")
+        ws.send_bytes(frame(b"Iwhat is the fee for"))
+        frames = recv_until(ws, "interrupted")
+        assert {"type": "transcript", "final": False, "text": "what is the fee for"} in frames + [
+            ws.receive_json()
+        ]
+        ws.send_bytes(frame(b"Uwhat is the fee for computer science"))
+        later = recv_until(ws, "assistant_delta")
+    assert {
+        "type": "transcript",
+        "final": True,
+        "text": "what is the fee for computer science",
+    } in later
+    assert agent.calls[-1] == "what is the fee for computer science"
+
+
+def test_vox2_final_follow_up_without_interim_is_not_dropped(setup):
+    agent = Agent(COURSE_REPLY, 0.05)
+    client, _, _ = setup(agent)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_json({"type": "text", "text": "courses?"})
+        for _ in range(3):
+            recv_until(ws, "assistant_delta")
+        ws.send_bytes(frame(b"Uwhat about the hostel fee"))
+        frames = recv_until(ws, "transcript")
+        recv_until(ws, "assistant_delta")
+    assert frames[-1] == {"type": "transcript", "final": True, "text": "what about the hostel fee"}
+    assert agent.calls[-1] == "what about the hostel fee"
+
+
+def test_vox2_verbatim_echo_of_the_reply_is_still_ignored(setup):
+    agent = Agent(COURSE_REPLY, 0.05)
+    client, _, _ = setup(agent)
+    with client.websocket_connect("/ws/voice", headers=ORIGIN) as ws:
+        ws.send_json({"type": "start", "conversation_id": None})
+        ws.receive_json()
+        ws.send_json({"type": "text", "text": "courses?"})
+        for _ in range(3):
+            recv_until(ws, "assistant_delta")
+        ws.send_bytes(frame(b"Ithe fee for computer science is one lakh"))
+        ws.send_bytes(frame(b"Uthe fee for computer science is one lakh"))
+        frames = recv_until(ws, "audio_end", limit=400)
+    assert "interrupted" not in events(frames) and "transcript" not in events(frames)
+    assert len(agent.calls) == 1

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     llm_effort: str = "low"
     llm_max_tokens: int = 4096
     llm_keep_warm: bool = True  # keep the prompt cache warm in the background
+    llm_thinking: str = "adaptive"  # adaptive | disabled (disabled: faster first text)
     history_window: int = 20  # AGT7: at most this many messages go to the model
     moderation_llm: bool = True  # MOD1: also screen user messages with a model classifier
     deepgram_api_key: str = ""
@@ -63,6 +64,9 @@ class Settings(BaseSettings):
     limit_http_body_bytes: int = 65536
     limit_ws_message_bytes: int = 8192
     limit_audio_frame_bytes: int = 32768
+    voice_gate_enabled: bool = False  # ABU11 server speech gate; set true in production
+    limit_voice_seconds_visitor_ip_per_day: int = 900  # ABU11, audio sent to Deepgram
+    limit_voice_seconds_user_per_day: int = 3600  # ABU11, per login id
 
 
 @lru_cache

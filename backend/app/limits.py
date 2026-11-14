@@ -206,6 +206,7 @@ def reset_all() -> None:
     """Clear every counter (tests)."""
     for w in _WINDOWS:
         w.reset()
+    VOICE_SECONDS.reset()
     _session_keys.clear()
     CONNECTIONS.reset()
 
@@ -244,6 +245,59 @@ def admit_turn(ctx: Any, ip: str, conversation_turns: int) -> str | None:
         return DAILY_LIMIT
     TURNS_GLOBAL.hit("all")
     return None
+
+
+class DailySeconds:
+    """Seconds used per key over the last 24 hours, in one-minute buckets (bounded memory)."""
+
+    def __init__(self, max_keys: int = MAX_KEYS) -> None:
+        """Start empty."""
+        self._used: OrderedDict[str, deque[list[float]]] = OrderedDict()
+        self._max_keys = max_keys
+
+    def used(self, key: str) -> float:
+        """Seconds used by `key` in the last day."""
+        buckets = self._used.get(key)
+        if not buckets:
+            return 0.0
+        while buckets and buckets[0][0] <= now() - DAY:
+            buckets.popleft()
+        return sum(b[1] for b in buckets)
+
+    def take(self, key: str, seconds: float, cap: float) -> bool:
+        """Add `seconds` if that stays within `cap`; False (nothing added) once it would not."""
+        if self.used(key) + seconds > cap + 1e-9:
+            return False
+        buckets = self._used.setdefault(key, deque())
+        minute = now() // 60 * 60
+        if buckets and buckets[-1][0] == minute:
+            buckets[-1][1] += seconds
+        else:
+            buckets.append([minute, seconds])
+        self._used.move_to_end(key)
+        while len(self._used) > self._max_keys:
+            self._used.popitem(last=False)
+        return True
+
+    def reset(self) -> None:
+        """Forget everything."""
+        self._used.clear()
+
+
+VOICE_SECONDS = DailySeconds()
+VOICE_USED_UP = (
+    "You've used today's voice time, so I've stopped listening for now. You can still type"
+    " your questions."
+)
+
+
+def take_voice_seconds(ctx: Any, ip: str, seconds: float) -> bool:
+    """ABU11: count forwarded audio; per visitor IP or per login id. False once used up."""
+    if ctx.role == "visitor":
+        key, cap = f"ip:{ip}", limit("limit_voice_seconds_visitor_ip_per_day")
+    else:
+        key, cap = user_key(ctx), limit("limit_voice_seconds_user_per_day")
+    return VOICE_SECONDS.take(key, seconds, cap)
 
 
 def user_key(ctx: Any) -> str:

@@ -1,3 +1,4 @@
+# ruff: noqa: F811  (the e2e fixture is imported, then requested by name)
 """AC2/AC3 end to end: concurrent users each get only their own data.
 
 Students A and B (same class), C (other class and department), teachers T1 (advisor of A and B's
@@ -11,12 +12,12 @@ import asyncio
 import pytest
 
 from tests.e2e_helpers import (
+    T1,
+    T2,
     TURN_MODES,
     A,
     B,
     C,
-    T1,
-    T2,
     db_text,
     e2e,  # noqa: F401
     echo,
@@ -152,7 +153,7 @@ async def test_ac2_ac3_everyone_at_once_students_teachers_visitors(e2e):
 async def test_ac2_model_cannot_pass_another_identity_to_a_tool(e2e, victim):
     """AC2: no tool accepts a user id, login id or token from the model."""
     a = await e2e.actor("A", A)
-    vic = await e2e.actor("X", victim, ip="10.3.0.2")
+    await e2e.actor("X", victim, ip="10.3.0.2")
     victim_token = e2e.tokens(victim)[0]
     bogus = [
         ("get_attendance_summary", {"login_id": victim}),
@@ -177,3 +178,36 @@ async def test_ac2_model_cannot_pass_another_identity_to_a_tool(e2e, victim):
     assert [c for c in e2e.college.writes()] == []
     msgs = await stored_messages(s.conversation_id)
     assert msgs[0]["content"] == text
+
+
+async def test_ac2_rest_and_socket_ignore_client_supplied_identity(e2e):
+    """AC2/AC4: identity and role come only from the session, never from the client."""
+    a = await e2e.actor("A", A)
+    b = await e2e.actor("B", B, ip="10.3.3.3")
+    sb = await b.socket()
+    await sb.start()
+    await sb.turn("priya private hello")
+    b_cid = sb.conversation_id
+    for url in (f"/api/me?login_id={B}", f"/api/me?owner_key=user:{B}",
+                f"/api/history?owner_key=user:{B}", f"/api/history?login_id={B}",
+                f"/api/history/{b_cid}?owner_key=user:{B}"):
+        r = await a.get(url, headers={"X-Login-Id": B, "X-Owner-Key": f"user:{B}"})
+        assert hits(r.text, forbidden_for(A) + [b_cid, "priya private hello"]) == [], url
+    me = (await a.get(f"/api/me?login_id={B}")).json()
+    assert me["role"] == "student" and me["user"]["login_id"] == A
+    s = await a.socket()
+    await s.send_json({"type": "start", "conversation_id": None, "login_id": B,
+                       "owner_key": f"user:{B}", "role": "teacher", "user": {"login_id": B}})
+    ready = None
+    while ready is None:
+        f = await s.recv()
+        if isinstance(f, dict) and f.get("type") == "ready":
+            ready = f
+    assert ready["role"] == "student" and ready["user_name"] == "Arjun K"
+    s.conversation_id = ready["conversation_id"]
+    e2e.model.plan("who am I", [("get_my_profile", {}), ("list_my_classes", {})], echo)
+    await s.turn("who am I")
+    assert {c.login for c in e2e.log.by("A") if c.token} == {A}
+    assert hits(s.text(), forbidden_for(A)) == []
+    for call in e2e.model.by("A"):
+        assert "list_my_classes" not in call.tool_names

@@ -167,7 +167,6 @@ async def test_vox1_unknown_message_type_gets_error(make_server, msg):
     assert agent.texts == ["ok"]
 
 
-# DEFECT: a non-string `text` payload is str()-ed (e.g. "['a']", "12345") and run as a user turn (VoiceSession.on_message) (low).
 @pytest.mark.parametrize("payload", [["a"], {"a": 1}, True, 12345, 1.5, None, False, [], {}])
 async def test_vox1_text_with_non_string_payload_starts_no_turn(make_server, payload):
     _, agent, c, _ = await _open(make_server)
@@ -356,7 +355,6 @@ async def test_vox4_typed_turn_after_voice_turn_has_no_transcript(make_server):
     assert agent.texts == ["spoken question here", "typed question"]
 
 
-# DEFECT: an empty final utterance from STT starts a turn with "" (VoiceSession.on_stt) (low).
 async def test_vox1_final_transcript_empty_text_starts_nothing(make_server):
     srv, agent, c, _ = await _open(make_server)
     async with c:

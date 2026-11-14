@@ -576,3 +576,56 @@ async def test_agt2_thinking_from_finished_turns_is_not_replayed(setup):
     assert_valid(later)
     assert all(btype(b) != "thinking" for m in later if m["role"] == "assistant"
                for b in m["content"])
+
+
+@pytest.mark.parametrize("mode, expected", [("adaptive", None), ("disabled", {"type": "disabled"})])
+async def test_agt5_warm_up_and_turns_share_the_thinking_setting(setup, monkeypatch, mode, expected):
+    client, _ = setup([Reply(["Hi. "])])
+    values = {**loop.get_settings().model_dump(), "llm_thinking": mode, "moderation_llm": False}
+    monkeypatch.setattr(loop, "get_settings", lambda: SimpleNamespace(**values))
+
+    async def docs():
+        return []
+
+    monkeypatch.setattr(loop, "store", SimpleNamespace(active_documents=docs))
+    await loop.warm_cache()
+    cid = await conv()
+    await collect(VISITOR, cid, "hi")
+    sent = [kw.get("thinking") for kw in client.creates] + [client.calls[0].get("thinking")]
+    assert sent and all(t == expected for t in sent)
+    assert client.creates[0]["output_config"] == client.calls[0]["output_config"]
+    assert client.creates[0]["system"][0] == client.calls[0]["system"][0]
+
+
+def test_cit2_prompt_has_worked_examples_and_always_sources_rule():
+    text = " ".join(prompts.INSTRUCTIONS.split())
+    assert "circular twelve of twenty twenty six" in text
+    assert "thirty eight of fifty classes" in text and "C S three oh four" in text
+    assert "always ends with the SOURCES line" in text
+    assert "SOURCES: D3:2" in text and "SOURCES: D5:12/2026, D2:6.4.3" in text
+    assert prompts.stable_text("x") == prompts.stable_text("x")  # byte-stable
+
+
+def test_cit2_prompt_pins_rule_numbers_and_programme_figure_first():
+    text = " ".join(prompts.INSTRUCTIONS.split())
+    assert "say exactly the section number of the ref you cite" in text
+    assert '[ref D2:6.1.4] is "rule six point one point four"' in text
+    assert "give that one's figure first" in text
+
+
+def test_cit2_prompt_ties_spoken_source_to_cited_document():
+    text = " ".join(prompts.INSTRUCTIONS.split())
+    assert "The document you name in speech must be the one whose ref you cite" in text
+    assert "If the facts come from two documents, name both and cite both." in text
+
+
+def test_cor1_prompt_forbids_negatives_from_silence_and_asks_on_misheard_input():
+    text = " ".join(prompts.INSTRUCTIONS.split())
+    assert "Never state that something does not happen, is not required, is allowed or is free " \
+           "just because the documents do not mention it" in text
+    assert "the handbook doesn't say whether" in text
+    assert "A negative statement needs a passage that states it" in text
+    assert "speech recognition" in text and "could mean two different things" in text
+    assert "ask one short question to check what they meant" in text
+    assert "Do not ask when the message is clear" in text
+    assert "prefer the rule that deals with that case directly" in text

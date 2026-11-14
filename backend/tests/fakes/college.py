@@ -322,12 +322,12 @@ class FakeCollege:
 
     def ctx(self, login: str | None, *, session_id: str | None = None):
         """A SessionCtx for `login` (None: a visitor) carrying a fresh valid fake token."""
-        from app.auth import SessionCtx
+        from app.auth import SessionCtx, profile
 
         if login is None:
             return SessionCtx(session_id or f"sid-visitor-{secrets.token_hex(4)}",
                               f"visitor:{secrets.token_hex(12)}", "visitor", None, None)
-        user = user_summary(login)
+        user = profile(user_summary(login))  # what the server keeps (no notes)
         return SessionCtx(session_id or f"sid-{login}-{secrets.token_hex(4)}", f"user:{login}",
                           user["role"], user, self.issue_token(login))
 

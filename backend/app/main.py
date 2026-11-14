@@ -31,11 +31,19 @@ SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "microphone=(self), camera=(), geolocation=()",
-    "Content-Security-Policy": (
-        "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; "
-        "media-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-    ),
 }
+CSP = (
+    "default-src 'self'; connect-src 'self' {ws}; img-src 'self' data:; "
+    "media-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+)
+
+
+def _csp() -> str:
+    """The CSP, allowing WebSockets only to our own public origin (wss:// for https)."""
+    origin = get_settings().public_origin.rstrip("/")
+    scheme, sep, rest = origin.partition("://")
+    ws = {"https": "wss", "http": "ws"}.get(scheme.lower()) if sep else None
+    return CSP.format(ws=f"{ws}://{rest}" if ws else "").replace("'self' ;", "'self';")
 
 
 async def _keep_warm() -> None:
@@ -110,7 +118,7 @@ async def security_headers(request: Request, call_next):
     except Exception:
         log.exception("unhandled error on %s %s", request.method, request.url.path)
         response = PlainTextResponse("Internal Server Error", status_code=500)
-    for key, value in SECURITY_HEADERS.items():
+    for key, value in {**SECURITY_HEADERS, "Content-Security-Policy": _csp()}.items():
         response.headers.setdefault(key, value)
     return response
 

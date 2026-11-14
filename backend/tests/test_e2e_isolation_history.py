@@ -1,3 +1,4 @@
+# ruff: noqa: F811  (the e2e fixture is imported, then requested by name)
 """AC3/AC7 and AC6 end to end: conversations belong to their owner; a login switch leaves nothing.
 
 AC3: another user's conversation id returns 404 and no data, whether listed, read, resumed over the
@@ -54,7 +55,7 @@ def leaks_b(text: str) -> list[str]:
 
 @TURN_MODES
 async def test_ac3_ac7_student_cannot_resume_another_students_conversation(e2e, how):
-    b, sb, snap = await b_conversation(e2e)
+    _b, sb, snap = await b_conversation(e2e)
     a = await e2e.actor("A", A)
     s = await a.socket()
     ready = await s.start(sb.conversation_id)
@@ -70,7 +71,7 @@ async def test_ac3_ac7_student_cannot_resume_another_students_conversation(e2e, 
 
 
 async def test_ac3_student_cannot_read_or_list_another_students_conversation(e2e):
-    b, sb, snap = await b_conversation(e2e)
+    _b, sb, snap = await b_conversation(e2e)
     a = await e2e.actor("A", A)
     r = await a.get(f"/api/history/{sb.conversation_id}")
     assert r.status_code == 404
@@ -88,7 +89,7 @@ async def test_ac3_student_cannot_read_or_list_another_students_conversation(e2e
 
 @TURN_MODES
 async def test_ac3_model_cannot_use_another_conversation_id_in_a_tool_call(e2e, how):
-    b, sb, snap = await b_conversation(e2e)
+    _b, sb, snap = await b_conversation(e2e)
     a = await e2e.actor("A", A)
     s = await a.socket()
     await s.start()
@@ -140,7 +141,7 @@ MALFORMED = ["not-a-uuid", "", " ", "null", 123, 1.5, True, ["x"], {"id": "x"},
 
 @pytest.mark.parametrize("bad", MALFORMED, ids=[f"m{i}" for i in range(len(MALFORMED))])
 async def test_ac3_ac7_malformed_or_unknown_conversation_ids_give_fresh_or_404(e2e, bad):
-    b, sb, snap = await b_conversation(e2e)
+    _b, sb, snap = await b_conversation(e2e)
     a = await e2e.actor("A", A)
     s = await a.socket()
     ready = await s.start(bad)
@@ -227,6 +228,7 @@ async def test_ac6_old_cookie_is_dead_after_logout(e2e):
     assert f is None and ghost.closed_code == 4401
 
 
+# DEFECT: a socket opened before logout keeps making college calls with A's token after logout.
 @TURN_MODES
 async def test_ac6_socket_opened_before_logout_stops_serving_a_after_logout(e2e, how):
     """AC6: logout ends the session on the server, so nothing of A stays reachable through a
@@ -258,6 +260,7 @@ PRIVATE_A = ["Participating in State Level Technical Symposium", "overall_percen
 @TURN_MODES
 async def test_ac6_expired_college_token_is_treated_as_no_session(e2e, how):
     a = await e2e.actor("A", A)
+    cookie_a = a.cookie
     sa = await a.socket()
     await sa.start()
     e2e.college.expire_all(A)
@@ -266,6 +269,27 @@ async def test_ac6_expired_college_token_is_treated_as_no_session(e2e, how):
     assert hits(sa.text(), ["Participating in State Level Technical Symposium"]) == []
     assert all(c.login in (None,) for c in e2e.log.by("A") if c.path != "/v1/auth/login"
                and c.status == 200 and c.token)
-    assert (await a.get("/api/me")).json()["role"] == "visitor"
-    ghost = await a.socket()
+    ghost = await a.socket(cookie=cookie_a)
     assert await ghost.recv() is None and ghost.closed_code == 4401
+    assert (await a.get("/api/me")).json()["role"] == "visitor"
+
+
+@TURN_MODES
+async def test_ac3_two_visitors_same_ip_cannot_see_each_others_conversations(e2e, how):
+    """HIS2 with AC3: visitor history is tied to the browser session, not the network."""
+    v1 = await e2e.actor("V1", ip="10.6.6.6")
+    v2 = await e2e.actor("V2", ip="10.6.6.6")
+    s1 = await v1.socket()
+    await s1.start()
+    e2e.model.plan("visitor one asks about hostel fees pelicanmark", "Sure.")
+    await s1.turn("visitor one asks about hostel fees pelicanmark", how)
+    assert (await v2.get(f"/api/history/{s1.conversation_id}")).status_code == 404
+    assert (await v2.get("/api/history")).json() == []
+    s2 = await v2.socket()
+    ready = await s2.start(s1.conversation_id)
+    assert ready["conversation_id"] != s1.conversation_id
+    e2e.model.plan("what did I ask", "Nothing yet.")
+    await s2.turn("what did I ask", how)
+    assert hits("\n".join(c.text() for c in e2e.model.by("V2")), ["pelicanmark"]) == []
+    assert hits(s2.text(), ["pelicanmark"]) == []
+    assert [c["id"] for c in (await v1.get("/api/history")).json()] == [s1.conversation_id]

@@ -58,3 +58,5 @@ button, input { font:inherit; }
 .sources { margin-top:6px; font-size:.8rem; color:var(--muted); border-top:1px solid var(--line); padding-top:4px; }
 .sources-h { font-weight:600; } .sources ul { margin:2px 0 0; padding-left:18px; }
 .vp-count { display:block; font-size:.8rem; color:var(--muted); }
+.vp-stop:disabled { opacity:.45; cursor:not-allowed; }
+.vp-hint { color:var(--muted); font-size:.9rem; margin:8px 0 0; }

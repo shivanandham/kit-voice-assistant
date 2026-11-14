@@ -20,6 +20,11 @@ COOKIE_NAME = "kit_session"
 KIT_TOKEN_MARGIN_SECONDS = 60
 LOGIN_WINDOW_SECONDS = limits.LOGIN_IP.window  # rate-limit rules live in app.limits
 UNAVAILABLE = "The college system is unavailable. Try again shortly."
+EXPIRED_PRUNE_BATCH = 100  # expired session rows deleted per new session
+# The only profile fields kept from the college (CONTRACT.md SessionCtx.user). Anything else,
+# e.g. free-text `notes` that may carry injected instructions, never reaches a client or a prompt.
+PROFILE_FIELDS = ("id", "login_id", "full_name", "role", "department", "class_id", "class_code",
+                  "programme", "year_of_study")
 
 router = APIRouter()
 
@@ -39,6 +44,17 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def profile(user: dict | None) -> dict | None:
+    """The allow-listed profile: PROFILE_FIELDS only, scalar values only (others become None)."""
+    if not isinstance(user, dict):
+        return None
+    scalar = (str, int, float, bool)
+    return {
+        k: v if v is None or isinstance(v, scalar) else None
+        for k, v in ((k, user.get(k)) for k in PROFILE_FIELDS)
+    }
+
+
 def _ctx_from_row(row) -> SessionCtx:
     user = row["user_json"]
     if isinstance(user, str):
@@ -47,7 +63,7 @@ def _ctx_from_row(row) -> SessionCtx:
         session_id=row["id"],
         owner_key=row["owner_key"],
         role=row["role"],
-        user=user,
+        user=profile(user),
         kit_token=row["kit_token"],
     )
 
@@ -94,7 +110,16 @@ async def _create_session(
     kit_token: str | None = None,
     kit_expires_in: int | None = None,
 ) -> tuple[str, SessionCtx]:
-    """Insert a session under a fresh random token; returns (cookie token, ctx)."""
+    """Insert a session under a fresh random token; returns (cookie token, ctx).
+
+    Only the allow-listed profile is stored, and a bounded batch of expired rows is pruned.
+    """
+    user = profile(user)
+    await pool().execute(
+        "DELETE FROM sessions WHERE id IN"
+        " (SELECT id FROM sessions WHERE expires_at < now() LIMIT $1)",
+        EXPIRED_PRUNE_BATCH,
+    )
     token = secrets.token_urlsafe(32)
     sid = _hash(token)
     now = datetime.now(UTC)
@@ -217,8 +242,7 @@ async def login(body: LoginBody, request: Request, response: Response) -> dict:
     old = request.cookies.get(COOKIE_NAME)
     if old:
         await pool().execute("DELETE FROM sessions WHERE id = $1", _hash(old))
-    await pool().execute("DELETE FROM sessions WHERE expires_at < now()")
-    token, _ = await _create_session(
+    token, ctx = await _create_session(
         f"user:{user['login_id']}",
         user["role"],
         user,
@@ -226,7 +250,7 @@ async def login(body: LoginBody, request: Request, response: Response) -> dict:
         expires_in,
     )
     _set_cookie(response, token)
-    return {"user": user}
+    return {"user": ctx.user}
 
 
 @router.post("/api/logout")

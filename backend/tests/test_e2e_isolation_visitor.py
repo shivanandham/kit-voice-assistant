@@ -1,3 +1,4 @@
+# ruff: noqa: F811  (the e2e fixture is imported, then requested by name)
 """AC1 (with AC4, DOC1) end to end: a visitor never obtains any student or teacher data.
 
 The visitor talks to the real app (typed and scripted-voice turns), the scripted model asks for

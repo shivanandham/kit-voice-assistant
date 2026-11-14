@@ -97,6 +97,8 @@ class Probe:
             muted = (muted or kind == "interrupted") and kind != "audio_start"
             if kind == "transcript" and ev.get("final"):
                 self.marks.setdefault("final", now)
+            if kind == "interrupted":
+                self.marks.setdefault("interrupted", now)
             if kind == "assistant_delta":
                 self.marks.setdefault("text", now)
             if kind == "audio_end":
@@ -157,6 +159,7 @@ async def main() -> None:
     ap.add_argument("--login")
     ap.add_argument("--base", default="http://localhost:8000")
     ap.add_argument("--barge-in", action="store_true", help="talk over the first reply")
+    ap.add_argument("--barge-in-text", default=BARGE_IN_TEXT, help="what to say when barging in")
     ap.add_argument("--out", default="reply", help="WAV file prefix")
     ap.add_argument("--turn-timeout", type=float, default=30.0)
     args = ap.parse_args()
@@ -165,7 +168,7 @@ async def main() -> None:
     cookie = await session_cookie(base, args.login)
     async with httpx.AsyncClient(timeout=20) as c:
         clips = [await speech(c, s) for s in args.sentences]
-        barge = await speech(c, BARGE_IN_TEXT) if args.barge_in else b""
+        barge = await speech(c, args.barge_in_text) if args.barge_in else b""
 
     ws_url = base.replace("http", "ws", 1) + "/ws/voice"
     headers = {"Cookie": f"kit_session={cookie}", "Origin": base}
@@ -185,11 +188,15 @@ async def main() -> None:
                     await asyncio.sleep(0.02)
                 report(f"turn {n}", eos, dict(probe.marks))
                 await asyncio.sleep(1.0)  # let some reply audio play, then talk over it
-                print(f"{probe.stamp()}  >>> barge-in: {BARGE_IN_TEXT!r}")
+                print(f"{probe.stamp()}  >>> barge-in: {args.barge_in_text!r}")
+                barge_start = time.perf_counter()
                 probe.marks.clear()
                 probe.turn_done.clear()
                 eos = await probe.speak(barge)
                 label = "barge-in turn"
+                if "interrupted" in probe.marks:
+                    ms = 1000 * (probe.marks["interrupted"] - barge_start)
+                    print(f"--- barge-in: start of speech -> interrupted {ms:.0f} ms")
             else:
                 eos = await probe.speak(pcm)
                 label = f"turn {n}"

@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import re
 import time
 from collections.abc import AsyncIterator, Callable
@@ -16,12 +17,15 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app import auth, history, limits
 from app.config import get_settings
 from app.voice.deepgram import TTS_SAMPLE_RATE, DeepgramSTT, DeepgramTTS, SttEvent
+from app.voice.gate import EnergyGate
 
 log = logging.getLogger(__name__)
 
 # Input sizes (ABU10) and socket limits (ABU3) come from app.limits settings.
 PCM_BYTES_PER_SECOND = 32_000  # 16 kHz mono PCM16
 WATCHDOG_INTERVAL_S = 1.0  # how often idle time and socket lifetime are checked
+SESSION_RECHECK_S = 30.0  # an idle socket notices a logout within this time
+SESSION_ENDED = "Your session has ended. Please sign in again to continue."
 TTS_FAILED = "Sorry, I couldn't say that reply out loud. It's shown as text instead."
 STT_FAILED = "Speech recognition stopped for a moment. Please say that again, or type it."
 IDLE_MESSAGE = (
@@ -189,6 +193,32 @@ def _default_tts() -> Tts:
     return DeepgramTTS(s.deepgram_api_key, s.dg_tts_model)
 
 
+ECHO_MIN_WORDS = 3  # shorter transcripts are never judged to be echo
+ECHO_COVERAGE = 0.8  # share of the transcript that must be one contiguous run of the reply
+
+
+def is_echo(heard: list[str], reply: list[str]) -> bool:
+    """True only when the transcript is essentially a verbatim stretch of the reply.
+
+    The longest run of consecutive words shared with the reply must have at least
+    ECHO_MIN_WORDS words and cover ECHO_COVERAGE of what was heard. A question that merely
+    reuses the reply's words in another order is the user, not echo.
+    """
+    n = len(heard)
+    if n < ECHO_MIN_WORDS or not reply:
+        return False
+    best = 0
+    prev = [0] * (len(reply) + 1)
+    for w in heard:
+        row = [0] * (len(reply) + 1)
+        for j, r in enumerate(reply, 1):
+            if w == r:
+                row[j] = prev[j - 1] + 1
+                best = max(best, row[j])
+        prev = row
+    return best >= max(ECHO_MIN_WORDS, math.ceil(ECHO_COVERAGE * n))
+
+
 def _words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9']+", text.lower())
 
@@ -214,6 +244,8 @@ class VoiceSession:
         self.in_speech = False
         self.skip_utterance = False  # the capped utterance's own late events are dropped
         self.last_interim = ""
+        self.gate = EnergyGate() if get_settings().voice_gate_enabled else None
+        self.voice_used_up = False  # ABU11 daily voice time spent: audio is dropped
         self.run_turn = run_turn
         self.stt = stt
         self.tts = tts
@@ -221,7 +253,7 @@ class VoiceSession:
         self.conversation_turns = 0  # user turns stored in the conversation (ABU7)
         self.turn: asyncio.Task | None = None
         self.stt_task: asyncio.Task | None = None
-        self.reply_words: set[str] = set()
+        self.reply_text = ""  # what the current reply has said, for the echo check
         self.playback_until = 0.0  # monotonic time the client should finish playing
         self.barged = False  # the current speech already interrupted a reply
         self._send_lock = asyncio.Lock()
@@ -274,7 +306,10 @@ class VoiceSession:
         self.conversation_turns += 1
         async with self._turn_lock:
             await self._interrupt()
-            self.reply_words = set()
+            if not await self.session_valid():  # AC6: logged out or expired since connect
+                await self.end_session()
+                return
+            self.reply_text = ""
             self.turn = asyncio.create_task(self._turn(text))
 
     async def _turn(self, text: str) -> None:
@@ -295,7 +330,7 @@ class VoiceSession:
                     kind = event.get("type")
                     if kind == "text_delta":
                         delta = event.get("text") or ""
-                        self.reply_words.update(_words(delta))
+                        self.reply_text += delta
                         await self.send({"type": "assistant_delta", "text": delta})
                         queue_sentences(splitter.feed(delta))
                     elif kind == "tool":
@@ -358,7 +393,12 @@ class VoiceSession:
     def _is_real_speech(self, text: str, min_words: int = BARGE_IN_MIN_WORDS) -> bool:
         """Enough words, and not just the assistant's own words echoing back through the mic."""
         words = _words(text)
-        return len(words) >= min_words and not set(words) <= self.reply_words
+        if len(words) < min_words:
+            return False
+        if is_echo(words, _words(self.reply_text)):
+            log.info("transcript discarded as echo of the reply (%d words)", len(words))
+            return False
+        return True
 
     async def on_stt(self, event: SttEvent) -> None:
         """Handle one STT event: forward transcripts, barge in, start turns."""
@@ -416,8 +456,24 @@ class VoiceSession:
             await self.send({"type": "error", "message": "That audio frame was too large."})
             return
         pcm = pcm[: len(pcm) & ~1]  # whole 16-bit samples only
-        if not pcm:
+        if not pcm or self.voice_used_up:
             return
+        # ABU11: with the gate on, silence and steady noise never reach Deepgram
+        was_open = self.gate is not None and self.gate.open
+        for chunk in self.gate.feed(pcm) if self.gate is not None else [pcm]:
+            if not limits.take_voice_seconds(self.ctx, self.ip, len(chunk) / PCM_BYTES_PER_SECOND):
+                self.voice_used_up = True
+                await self.send({"type": "error", "message": limits.VOICE_USED_UP})
+                return
+            await self._forward(chunk)
+        if was_open and not self.gate.open:  # no more audio follows: let Deepgram finish now
+            finalize = getattr(self.stt, "finalize", None)
+            if finalize is not None:
+                with contextlib.suppress(Exception):
+                    await finalize()
+
+    async def _forward(self, pcm: bytes) -> None:
+        """Send audio to Deepgram and enforce the utterance cap (ABU3)."""
         if self.stt_task is None:
             self.stt_task = asyncio.create_task(self._pump_stt())
         try:
@@ -483,6 +539,19 @@ class VoiceSession:
             }
         )
 
+    async def session_valid(self) -> bool:
+        """Re-check the cookie's session with the same rules as at connect time."""
+        ctx = await auth.session_from_websocket(self.ws)
+        return ctx is not None and ctx.session_id == self.ctx.session_id
+
+    async def end_session(self) -> None:
+        """The session is gone: stop everything, tell the client, close with 4401."""
+        await self._interrupt()
+        with contextlib.suppress(Exception):
+            await self.send({"type": "error", "message": SESSION_ENDED})
+        with contextlib.suppress(Exception):
+            await self.ws.close(code=4401)
+
     async def watchdog(self) -> None:
         """ABU3: close an idle socket, or one past its lifetime, with an explanation."""
         lifetime = limits.limit(
@@ -490,9 +559,16 @@ class VoiceSession:
             if self.ctx.role == "visitor"
             else "limit_user_socket_seconds"
         )
+        last_check = limits.now()
         while True:
             await asyncio.sleep(WATCHDOG_INTERVAL_S)
             now = limits.now()
+            if now - last_check >= SESSION_RECHECK_S:
+                last_check = now
+                if not await self.session_valid():
+                    async with self._turn_lock:
+                        await self.end_session()
+                    return
             if now - self.connected_at >= lifetime:
                 message = LIFETIME_MESSAGE
             elif not self.replying() and now - self.last_activity >= limits.limit(

@@ -37,7 +37,7 @@ def response_text(r: httpx.Response) -> str:
 @pytest.mark.parametrize("login", list(USERS))
 async def test_ac4_role_comes_from_college(app_client, fake_college, login):
     user = await login_as(app_client, login)
-    assert user == user_summary(login)
+    assert user == auth.profile(user_summary(login))  # AC5: allow-listed fields only
     me = (await app_client.get("/api/me")).json()
     assert me["role"] == USERS[login]["role"]
     row = await pool().fetchrow("SELECT owner_key, role FROM sessions")
@@ -293,7 +293,7 @@ async def test_login_rate_limit_window_expires(browser, fake_college, monkeypatc
     c = await browser(client_ip="203.0.113.9")
     await hammer(c, LOGIN_LIMIT)
     assert (await c.post("/api/login", json=GOOD)).status_code == 429
-    now[0] += auth.LOGIN_WINDOW_SECONDS + 1
+    now[0] += 61  # ABU5: logins are counted per minute
     assert (await c.post("/api/login", json=GOOD)).status_code == 200
 
 

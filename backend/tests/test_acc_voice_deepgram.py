@@ -411,7 +411,6 @@ async def test_rel1_stt_connect_failure_raises_to_caller_and_recovers():
     await stt.close()
 
 
-# DEFECT: every connection that drops immediately triggers another reconnect with no limit or back-off (DeepgramSTT._read) (medium).
 async def test_rel1_stt_reconnect_is_bounded_when_server_keeps_dropping():
     plan = [lambda: _dropped() for _ in range(150)]
     con = Connector(plan, limit=150)
@@ -685,7 +684,6 @@ async def test_rel1_tts_websocket_drop_mid_audio_terminates_the_stream():
     assert len(b"".join(chunks)) <= len(audio_for("Cut off in the middle."))
 
 
-# DEFECT: a Deepgram `Error` message on the speak socket is only logged, so the sentence never completes and the consumer hangs (DeepgramTTS._read) (high).
 async def test_rel1_tts_server_error_message_surfaces_instead_of_hanging():
     client, _ = rest_client()
     tts = DeepgramTTS(KEY, "aura-test", connect=Connector(on_send=tts_server("error")), http=client)
