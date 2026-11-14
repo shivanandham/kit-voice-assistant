@@ -1,5 +1,17 @@
 # Security audit: kit-voice-assistant
 
+## Status after the audit
+
+The audit found no critical, high or medium issues. Changes made since it ran:
+
+| Item | Status |
+|---|---|
+| NV-1 confirm gate accepted any later message as approval | Fixed: a write needs an explicit approval as the latest user message, pending actions expire after 10 minutes, re-proposing resets the clock (`backend/app/agent/confirm.py`, `backend/tests/test_tools_consent.py`) |
+| NV-2 WebSocket frames up to 16 MiB accepted before the app's limits | Fixed: `--ws-max-size 65536` in `deploy/kit-assistant.service` and the Dockerfile |
+| NV-4 sandbox test password in docs and scripts | Fixed: scripts read `KIT_TEST_PASSWORD` from the environment |
+| Low: `.coverage` tracked in git | Fixed: untracked and ignored |
+| Low: login lockout can be triggered for a known login id; lockout race | Open, accepted for a sandbox with shared dummy logins |
+
 - **Date:** 2026-11-14.
 - **Method:** Cloudflare `security-audit` skill (github.com/cloudflare/security-audit-skill, commit c1c8a8c). It was installed only in `.claude/skills/security-audit`, which is gitignored. Run profile `quick`.
 - **Source reviewed:** commit `2d2c5f8`. Line numbers refer to that commit. Other engineers are editing `backend/app/main.py`, `backend/app/config.py`, `.env.example` and tests, and have an untracked `frontend/app/` and `ui/` in progress. Those uncommitted changes were **not** reviewed, and lines in `main.py` and `config.py` may have moved since.

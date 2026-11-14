@@ -95,6 +95,11 @@ the code is wrong. Each test names the criterion it proves (for example `AC3`).
 
 - **REL1** With the college system down, public pages and the assistant answer with a clear message.
 - **REL2** No test touches a real third-party service.
+- **REL3** If the primary model call fails before any reply text has been emitted, a second model
+  provider answers from the documents and conversation, without tools; if it also fails, the user gets
+  the safe error. A failure after text has been emitted does not switch providers mid-reply.
+- **REL4** If the speech service returns no audio for a reply, the reply is still shown and is read
+  aloud by the browser's speech synthesis; speech recognition never uses the browser.
 
 ## Abuse and limits (ABU)
 

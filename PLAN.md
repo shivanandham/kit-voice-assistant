@@ -115,6 +115,18 @@ Then: integrate and evaluate, test locally (with the user on a real microphone),
 - Real microphone check by a person in a browser.
 - No live writes to the college sandbox during the build.
 
-## After submission
+## Resilience (built)
 
-Backups for speech and the LLM, planned once Deepgram alone works.
+- Model: if the Claude call fails before any reply text, a second provider (Gemini) answers from the
+  documents without tools (`backend/app/agent/fallback.py`).
+- Speech output: if the speech service returns no audio, the browser's speech synthesis reads the reply
+  (`ui/src/voice/engine.ts`).
+- Speech input: typed input works whenever the microphone or speech recognition fails.
+- Search: full-text ranking in Postgres when embeddings are unavailable (`backend/app/knowledge/rag.py`).
+- College system: GETs are retried; writes carry idempotency keys and are retried only when safe.
+- Every failure path returns a short, safe message and keeps the WebSocket usable.
+
+## Interface (built)
+
+A React + TypeScript + Tailwind + shadcn/ui interface (source in `ui/`, production build committed in
+`frontend/app/`), served when `UI_VARIANT=app`. The original no-build pages in `frontend/` remain as a fallback.
