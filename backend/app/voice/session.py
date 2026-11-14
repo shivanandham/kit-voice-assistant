@@ -16,6 +16,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app import auth, history, limits
 from app.config import get_settings
+from app.ports import SpeechToText, TextToSpeech
 from app.voice.deepgram import TTS_SAMPLE_RATE, DeepgramSTT, DeepgramTTS, SttEvent
 from app.voice.gate import EnergyGate
 
@@ -649,8 +650,8 @@ def _parse(raw: str) -> dict | str:
 
 def build_router(
     run_turn: RunTurn = _default_run_turn,
-    stt_factory: Callable[[], Stt] = _default_stt,
-    tts_factory: Callable[[], Tts] = _default_tts,
+    stt_factory: Callable[[], SpeechToText] = _default_stt,
+    tts_factory: Callable[[], TextToSpeech] = _default_tts,
 ) -> APIRouter:
     """Create the /ws/voice router; tests inject fake agent and speech dependencies."""
     r = APIRouter()

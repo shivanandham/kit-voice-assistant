@@ -1,0 +1,29 @@
+# Local, reproducible run: Postgres with pgvector plus the app. Usage: see README "Run with Docker".
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: kit
+      POSTGRES_PASSWORD: kit
+      POSTGRES_DB: kit_assistant
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kit -d kit_assistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://kit:kit@db:5432/kit_assistant
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:

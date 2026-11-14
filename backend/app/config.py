@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     llm_keep_warm: bool = True  # keep the prompt cache warm in the background
     llm_thinking: str = "adaptive"  # adaptive | disabled (disabled: faster first text)
     llm_fallback_enabled: bool = True  # REL1: answer with a second provider if Claude fails
-    llm_fallback_model: str = "gemini-3.8-flash"
+    llm_fallback_model: str = "gemini-3.5-flash-lite"
     history_window: int = 20  # AGT7: at most this many messages go to the model
     moderation_llm: bool = True  # MOD1: also screen user messages with a model classifier
     deepgram_api_key: str = ""

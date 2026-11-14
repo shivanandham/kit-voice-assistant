@@ -21,6 +21,15 @@ Postgres (sessions, conversations, messages, tool_calls, pending_actions, docume
 External: college API, Anthropic (Claude), Deepgram (STT, TTS), Gemini (embeddings, and answers via agent/fallback.py if Claude fails)
 ```
 
+Provider seams: `backend/app/ports.py` names every external service the app depends on as a small
+`typing.Protocol` (`SpeechToText`, `TextToSpeech`, `ChatModel` for the fallback model, `Embedder`,
+`CollegeSystem`), listing only the methods the app calls and which adapter implements each today
+(Deepgram, Gemini, `KitClient`). That file is where a new provider plugs in: write an adapter with the
+same methods and pass it at the injection point named in the docstring (for speech, the
+`stt_factory`/`tts_factory` parameters of `voice.session.build_router`).
+`backend/tests/test_ports_conformance.py` checks the current adapters still match, so the seams are
+enforced by the test suite.
+
 ## Life of one spoken turn
 
 1. Browser captures the microphone as 16 kHz PCM and streams frames over the WebSocket
