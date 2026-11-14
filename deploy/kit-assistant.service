@@ -1,0 +1,15 @@
+[Unit]
+Description=KIT voice assistant (FastAPI on 127.0.0.1:5210)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=deploy
+WorkingDirectory=/home/deploy/kit-voice-assistant
+EnvironmentFile=/home/deploy/kit-assistant.env
+ExecStart=/home/deploy/kit-voice-assistant/.venv/bin/uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 5210
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

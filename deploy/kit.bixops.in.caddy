@@ -1,0 +1,15 @@
+
+# ── KIT voice assistant (FastAPI on 127.0.0.1:5210, audio streaming + WebSockets) ──
+kit.bixops.in {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# No encode here: compression would buffer the streamed audio.
+	reverse_proxy 127.0.0.1:5210 {
+		flush_interval -1
+	}
+}
