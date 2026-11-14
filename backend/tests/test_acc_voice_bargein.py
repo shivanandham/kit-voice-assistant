@@ -95,16 +95,54 @@ async def test_vox2_nothing_from_old_turn_after_interrupted(make_server):
     check_audio_protocol(frames + tail)
 
 
-@pytest.mark.parametrize("blip", [b"Iuh", b"Ihmm", b"Ium"])
-async def test_vox2_a_blip_is_not_a_barge_in(make_server, blip):
-    agent = Agent(SLOW, delay=0.05)
+# DEFECT: a one-word interim ("stop") during a reply does not interrupt; BARGE_IN_MIN_WORDS=2 still ignores it (VoiceSession.on_stt / _is_real_speech) (medium).
+@pytest.mark.parametrize("short", [b"Istop", b"Iwait please", b"Iuh"])
+async def test_vox2_one_or_two_word_speech_interrupts(make_server, short):
+    agent = Agent(["Slow words. "] * 40, delay=0.05)
     _, c = await _open(make_server, agent)
     async with c:
         await c.send_json({"type": "text", "text": "tell me"})
         await c.until("assistant_delta")
-        await c.mic(blip)
-        got = await c.drain(0.5)
-    assert "interrupted" not in types(got) and agent.stopped_early == []
+        await c.mic(short)
+        await c.until("interrupted")
+    assert agent.stopped_early == ["tell me"]
+
+
+async def test_vox2_follow_up_made_of_reply_words_in_new_order_interrupts_and_is_next_turn(make_server):
+    agent = Agent(["Admissions are open now. "] * 40, delay=0.05)
+    _, c = await _open(make_server, agent)
+    async with c:
+        await c.send_json({"type": "text", "text": "admissions?"})
+        await c.until("assistant_delta")
+        await c.mic(b"Inow open are admissions")
+        await c.until("interrupted")
+        await c.mic(b"Unow open are admissions")
+        await c.until("assistant_delta")
+    assert agent.texts == ["admissions?", "now open are admissions"]
+
+
+async def test_vox2_final_follow_up_of_reply_words_is_not_swallowed(make_server):
+    agent = Agent(["Admissions are open now. "] * 40, delay=0.05)
+    _, c = await _open(make_server, agent)
+    async with c:
+        await c.send_json({"type": "text", "text": "admissions?"})
+        await c.until("assistant_delta")
+        await c.mic(b"Uopen now admissions are")
+        await c.until("assistant_delta")
+    assert agent.texts == ["admissions?", "open now admissions are"]
+
+
+async def test_vox2_nothing_is_filtered_after_playback_has_ended(make_server):
+    tts = FakeTts(chunks=1, chunk_bytes=480, delay=lambda t: 0.01)
+    agent = Agent(["Admissions are open now."])
+    _, c = await _open(make_server, agent, tts)
+    async with c:
+        await c.send_json({"type": "text", "text": "admissions?"})
+        await c.until("audio_end")
+        await asyncio.sleep(0.8)
+        await c.mic(b"Uadmissions are open now")
+        await c.until("audio_end")
+    assert agent.texts == ["admissions?", "admissions are open now"]
 
 
 # ------------------------------------------------------------------------- stage: synthesising
@@ -320,7 +358,7 @@ async def test_vox2_repeated_barge_ins_keep_working(make_server):
 # ------------------------------------------------------------------------- echo
 
 
-@pytest.mark.parametrize("echo", [b"Iadmissions are open", b"IAdmissions, ARE open!", b"Iopen admissions", b"Iadmissions are open now"])
+@pytest.mark.parametrize("echo", [b"Iadmissions are open", b"IAdmissions, ARE open!", b"Iadmissions are open now"])
 async def test_vox2_echo_of_own_reply_does_not_interrupt_during_generation(make_server, echo):
     agent = Agent(["Admissions are open now. "] * 30, delay=0.05)
     _, c = await _open(make_server, agent)

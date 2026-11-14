@@ -597,26 +597,47 @@ async def test_agt5_warm_up_and_turns_share_the_thinking_setting(setup, monkeypa
     assert client.creates[0]["system"][0] == client.calls[0]["system"][0]
 
 
-def test_cit2_prompt_has_worked_examples_and_always_sources_rule():
-    text = " ".join(prompts.INSTRUCTIONS.split())
-    assert "circular twelve of twenty twenty six" in text
-    assert "thirty eight of fifty classes" in text and "C S three oh four" in text
-    assert "always ends with the SOURCES line" in text
-    assert "SOURCES: D3:2" in text and "SOURCES: D5:12/2026, D2:6.4.3" in text
-    assert prompts.stable_text("x") == prompts.stable_text("x")  # byte-stable
+def _spoken_example_lines() -> list[str]:
+    """The worked-example lines that model what is said aloud (not SOURCES or 'Written:')."""
+    text = prompts.INSTRUCTIONS
+    examples = text[text.index("Examples of spoken forms"):text.index("Where facts come from")]
+    replies = text[text.index("Complete replies"):text.index("Documents and dates")]
+    lines = [ln for ln in (examples + replies).splitlines()
+             if ln.strip() and not ln.startswith(("Written:", "SOURCES:", "Examples", "Complete"))]
+    return lines
 
 
-def test_cit2_prompt_pins_rule_numbers_and_programme_figure_first():
+def test_cit2_spoken_replies_carry_no_rule_circular_or_page_numbers():
     text = " ".join(prompts.INSTRUCTIONS.split())
+    assert ("Do not say rule numbers, section numbers, circular numbers or page numbers") in text
+    assert "the on-screen Sources list" in text
+    assert '"the handbook says"' in text and '"a recent circular changed this"' in text
+    spoken = " ".join(_spoken_example_lines()).lower()
+    for number_word in ("rule six", "rule four", "circular twelve", "section ", "page "):
+        assert number_word not in spoken, number_word
+    assert "under rule" not in text.lower().split("if the person asks which rule")[0]
+
+
+def test_cit2_rule_numbers_only_on_request_and_then_exact():
+    text = " ".join(prompts.INSTRUCTIONS.split())
+    assert "If the person asks which rule, circular or page something comes from" in text
     assert "say exactly the section number of the ref you cite" in text
     assert '[ref D2:6.1.4] is "rule six point one point four"' in text
-    assert "give that one's figure first" in text
 
 
-def test_cit2_prompt_ties_spoken_source_to_cited_document():
+def test_cit2_circular_override_still_said_in_plain_words():
     text = " ".join(prompts.INSTRUCTIONS.split())
-    assert "The document you name in speech must be the one whose ref you cite" in text
-    assert "If the facts come from two documents, name both and cite both." in text
+    assert "say in plain words that the rule changed and from when" in text
+
+
+def test_cit2_sources_line_stays_mandatory_with_worked_examples():
+    text = " ".join(prompts.INSTRUCTIONS.split())
+    assert "always ends with the SOURCES line" in text
+    assert "SOURCES: D3:2" in text and "SOURCES: D5:12/2026, D2:6.4.3" in text
+    assert "thirty eight of fifty classes" in text and "C S three oh four" in text
+    assert "give that one's figure first" in text
+    assert "If the facts come from two documents" in text
+    assert prompts.stable_text("x") == prompts.stable_text("x")  # byte-stable
 
 
 def test_cor1_prompt_forbids_negatives_from_silence_and_asks_on_misheard_input():
