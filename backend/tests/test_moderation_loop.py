@@ -236,6 +236,14 @@ def test_out1_frontend_inserts_text_never_html():
     }
     files = sorted((ROOT / "frontend").glob("*.html")) + sorted((ROOT / "frontend/static").glob("*.js"))
     assert files
+    # The React UI source (ui/): scan the source, not the minified bundle (React itself contains
+    # the word innerHTML). JSX must never use dangerouslySetInnerHTML or a markdown/HTML renderer.
+    ui_files = [p for p in (ROOT / "ui").rglob("*") if p.suffix in {".ts", ".tsx", ".js", ".jsx", ".html"}
+                and "node_modules" not in p.parts]
+    assert ui_files
+    files += sorted(ui_files)
+    sinks = {**sinks, "dangerouslySetInnerHTML": r"dangerouslySetInnerHTML",
+             "markdown renderer": r"\b(react-markdown|streamdown|marked|markdown-it|DOMParser)\b"}
     found = []
     for f in files:
         source = f.read_text()

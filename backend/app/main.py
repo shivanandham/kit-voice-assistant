@@ -174,6 +174,8 @@ async def public_courses():
 
 async def _page(request: Request, name: str, *, login_required: bool = False) -> Response:
     # Every page goes through session_from_request so a cookie exists before any WebSocket opens.
+    if get_settings().ui_variant == "app":
+        name = "app/index.html"  # the built React UI (ui/), one index for every page
     page = FileResponse(FRONTEND / name)
     ctx = await auth.session_from_request(request, page)
     if login_required and ctx.role == "visitor":
@@ -209,3 +211,4 @@ async def history_page(request: Request):
 
 
 app.mount("/static", StaticFiles(directory=FRONTEND / "static", check_dir=False), name="static")
+app.mount("/ui-assets", StaticFiles(directory=FRONTEND / "app", check_dir=False), name="ui-assets")

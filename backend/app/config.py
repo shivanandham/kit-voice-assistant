@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
     public_origin: str = "http://localhost:8000"
     session_ttl_hours: int = 8
+    ui_variant: str = "classic"  # classic: frontend/*.html; app: the built UI in frontend/app/
     # Abuse limits (ACCEPTANCE.md ABU1-ABU10), enforced in app/limits.py. IP limits apply to
     # visitors only; logged-in users are limited per login id.
     anon_sessions_per_hour: int = 30  # ABU4, per visitor IP

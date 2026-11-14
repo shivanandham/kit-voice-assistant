@@ -18,7 +18,7 @@ PUBLIC = {
 OWN_SESSION_ONLY = {("GET", "/api/history"), ("GET", "/api/history/{conversation_id}")}
 LOGIN_REQUIRED = {("GET", "/assistant")}
 WEBSOCKETS = {"/ws/voice"}
-MOUNTS = {"/static"}
+MOUNTS = {"/static", "/ui-assets"}  # /ui-assets: built UI files (UI_VARIANT=app), public
 
 
 def all_routes(routes=None, prefix=""):
