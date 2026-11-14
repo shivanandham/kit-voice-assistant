@@ -1,4 +1,4 @@
-.PHONY: test test-fast lint run
+.PHONY: test test-fast lint format check run
 
 # The whole suite with coverage. Third-party services are stubbed; needs local Postgres with pgvector.
 test:
@@ -10,6 +10,12 @@ test-fast:
 
 lint:
 	uv run ruff check backend scripts
+
+format:
+	uv run ruff check --fix backend/app scripts
+
+# Lint and the whole suite: what CI runs.
+check: lint test
 
 run:
 	uv run uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000

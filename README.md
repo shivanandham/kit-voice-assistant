@@ -76,6 +76,8 @@ found no critical, high or medium issues).
 - Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Module interfaces: [CONTRACT.md](CONTRACT.md).
   Specification: [ACCEPTANCE.md](ACCEPTANCE.md).
 
+Design decisions and their trade-offs are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
+
 ## Code quality and tests
 
 - One command: `make test` (whole suite with coverage). 5,390+ tests and 97% line and branch coverage
