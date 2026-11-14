@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
-import { Loader2Icon, MicIcon, SendIcon, SquareIcon, XIcon } from "lucide-react"
+import { Loader2Icon, MicIcon, PlusIcon, SendIcon, SquareIcon, XIcon } from "lucide-react"
 
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion"
 import { LevelBars } from "@/components/kit/level-bars"
@@ -68,7 +68,7 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
   // Escape leaves voice mode wherever focus is (the send button may be disabled while sending).
   useEffect(() => {
     if (!s.micOn) return
-    const onEsc = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); engine.toggleTalk() } }
+    const onEsc = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); engine.leaveVoice() } }
     document.addEventListener("keydown", onEsc)
     return () => document.removeEventListener("keydown", onEsc)
   }, [s.micOn, engine])
@@ -110,6 +110,11 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
           {s.status === "listening" && s.hearing && <Badge className="bg-primary/15 text-primary">Hearing you</Badge>}
           <span className="truncate text-sm text-muted-foreground">{HINT[s.status]}</span>
         </div>
+        {s.messages.length > 0 && (
+          <Button type="button" variant="outline" size="sm" className="ml-auto shrink-0" onClick={() => engine.newConversation()}>
+            <PlusIcon aria-hidden />New conversation
+          </Button>
+        )}
       </div>
 
       {s.error && (
@@ -182,7 +187,7 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
         {s.micOn ? (
           <div className="flex items-center gap-2" data-testid="voice-composer">
             <Button type="button" size="icon" variant="outline" className="size-11 shrink-0 rounded-full"
-              aria-label="Close voice mode" onClick={() => engine.toggleTalk()}>
+              aria-label="Close voice mode" onClick={() => engine.leaveVoice()}>
               <XIcon aria-hidden />
             </Button>
             <div className="flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-md border bg-card px-3 py-1">

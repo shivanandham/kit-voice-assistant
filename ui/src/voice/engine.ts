@@ -117,6 +117,29 @@ export class VoiceEngine {
     }
   }
 
+  /** Leave voice mode: release the microphone and stop playback. The socket and the stored
+   * conversation id stay, so the next typed or spoken turn continues the same conversation. */
+  leaveVoice(): void {
+    if (this.isPlaying()) this.send({ type: "interrupt" })
+    this.flushPlayback()
+    this.stopMic()
+    this.refreshState()
+  }
+
+  /** New conversation: end the current one (same as the old Talk-off path) and clear the log. */
+  newConversation(): void {
+    this.send({ type: "interrupt" })
+    this.stopMic()
+    this.flushPlayback()
+    this.closeSocket()
+    this.thinking = false
+    this.asstId = null
+    this.pendingSources = null
+    try { sessionStorage.removeItem(STORE_KEY) } catch { /* storage unavailable */ }
+    this.emit({ messages: [], interim: "", error: "", tool: null })
+    this.refreshState()
+  }
+
   /** Stop speaking button. */
   stopSpeaking(): void {
     this.send({ type: "interrupt" })
