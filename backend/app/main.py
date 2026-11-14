@@ -70,27 +70,52 @@ async def _keep_warm() -> None:
         await asyncio.sleep(WARM_INTERVAL_SECONDS)
 
 
+LIMITS_SAVE_INTERVAL_SECONDS = 30
+
+
+async def _save_limits_periodically() -> None:
+    """Persist the daily limit counters every LIMITS_SAVE_INTERVAL_SECONDS."""
+    while True:
+        await asyncio.sleep(LIMITS_SAVE_INTERVAL_SECONDS)
+        try:
+            await limits.save_counters()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.warning("periodic limit counter save failed", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Open the database, the document sync loop and the cache keep-warm task; on shutdown stop
     them and close the college HTTP client and the database."""
     await init_db()
+    persist = get_settings().limits_persist
+    saver = None
+    if persist:
+        await limits.load_counters()
+        saver = asyncio.create_task(_save_limits_periodically())
     await store.start_sync_loop()
     warm = asyncio.create_task(_keep_warm()) if get_settings().llm_keep_warm else None
     try:
         yield
     finally:
-        if warm is not None:
-            warm.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await warm
+        for task in (warm, saver):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
         try:
             await store.stop_sync_loop()
         finally:
             try:
                 await close_http()
             finally:
-                await close_db()
+                try:
+                    if persist:
+                        await limits.save_counters()
+                finally:
+                    await close_db()
 
 
 # No /docs, /redoc or /openapi.json: the API is private to our own frontend.

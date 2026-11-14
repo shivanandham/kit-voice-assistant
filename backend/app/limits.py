@@ -11,17 +11,21 @@ injectable clock (`_clock`); auth.py and main.py are thin callers.
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from collections import OrderedDict, deque
 from collections.abc import Callable
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
 
 from app.config import get_settings
 from app.db import pool
+
+log = logging.getLogger(__name__)
 
 DAY = 86400.0
 MAX_KEYS = 50_000
@@ -304,6 +308,82 @@ def user_key(ctx: Any) -> str:
     """The per-person key for a logged-in session: the college login id."""
     login = (ctx.user or {}).get("login_id")
     return f"login:{login.strip().lower()}" if isinstance(login, str) and login else ctx.owner_key
+
+
+# --------------------------------------------------------------------------- persistence
+
+# Day-scale counters saved to Postgres (limit_counters) so allowances survive a restart. The
+# in-memory checks stay the hot path; these run only at startup, periodically and at shutdown.
+_PERSISTED_WINDOWS: dict[str, SlidingWindow] = {
+    "turns_visitor_ip": TURNS_VISITOR_IP,
+    "turns_user": TURNS_USER,
+    "turns_global": TURNS_GLOBAL,
+    "admissions_session": ADMISSIONS_SESSION,
+    "admissions_ip": ADMISSIONS_IP,
+}
+_VOICE_NAME = "voice_seconds"
+
+
+def _today():
+    return datetime.now(UTC).date()
+
+
+async def save_counters() -> None:
+    """Upsert today's totals of the daily counters (idempotent); logs and never raises."""
+    try:
+        if not get_settings().limits_persist:
+            return
+        day = _today()
+        rows: list[tuple[str, str, Any, float]] = []
+        for name, window in _PERSISTED_WINDOWS.items():
+            for key in list(window._hits):
+                n = window.count(key)
+                if n:
+                    rows.append((name, key, day, float(n)))
+        for key in list(VOICE_SECONDS._used):
+            used = VOICE_SECONDS.used(key)
+            if used > 0:
+                rows.append((_VOICE_NAME, key, day, float(used)))
+        if not rows:
+            return
+        await pool().executemany(
+            "INSERT INTO limit_counters (name, key, day, count) VALUES ($1, $2, $3, $4)"
+            " ON CONFLICT (name, key, day) DO UPDATE"
+            " SET count = EXCLUDED.count, updated_at = now()",
+            rows,
+        )
+    except Exception:
+        log.warning("saving limit counters failed", exc_info=True)
+
+
+async def load_counters() -> None:
+    """Seed the daily counters from today's saved rows (UTC date); logs and never raises.
+
+    Window alignment is approximate: a saved count of N is restored as N events at the current
+    clock value, so they expire a full day after the restart."""
+    try:
+        if not get_settings().limits_persist:
+            return
+        records = await pool().fetch(
+            "SELECT name, key, count FROM limit_counters WHERE day = $1", _today()
+        )
+        t = now()
+        for r in records:
+            name, key, count = r["name"], r["key"], float(r["count"])
+            if name == _VOICE_NAME:
+                if count > VOICE_SECONDS.used(key):
+                    VOICE_SECONDS._used[key] = deque([[t // 60 * 60, count]])
+                continue
+            window = _PERSISTED_WINDOWS.get(name)
+            n = int(round(count))
+            if window is None or n <= window.count(key):
+                continue
+            window._hits[key] = deque([t] * n)
+            window._hits.move_to_end(key)
+            while len(window._hits) > window._max_keys:
+                window._hits.popitem(last=False)
+    except Exception:
+        log.warning("loading limit counters failed", exc_info=True)
 
 
 # --------------------------------------------------------------------------- ABU6

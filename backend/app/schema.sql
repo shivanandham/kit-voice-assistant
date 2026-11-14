@@ -86,3 +86,13 @@ ALTER TABLE doc_chunks ADD COLUMN IF NOT EXISTS ref text;
 ALTER TABLE doc_chunks ADD COLUMN IF NOT EXISTS section text;
 ALTER TABLE doc_chunks ADD COLUMN IF NOT EXISTS page_start int;
 ALTER TABLE doc_chunks ADD COLUMN IF NOT EXISTS page_end int;
+
+-- Daily abuse-limit counters, saved periodically so allowances survive a restart.
+CREATE TABLE IF NOT EXISTS limit_counters (
+    name text NOT NULL,
+    key text NOT NULL,
+    day date NOT NULL,
+    count double precision NOT NULL,
+    updated_at timestamptz DEFAULT now(),
+    PRIMARY KEY (name, key, day)
+);

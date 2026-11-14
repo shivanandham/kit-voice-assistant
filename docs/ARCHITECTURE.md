@@ -10,7 +10,7 @@ Browser (ui/ React app, or classic frontend/ pages)
    |  HTTPS: /api/*, pages        WebSocket: /ws/voice (cookie, Origin checked)
    v
 FastAPI (main.py: headers, CSP, routes)
-   |-- auth.py ........ login, sessions        |-- limits.py ..... abuse limits (in memory)
+   |-- auth.py ........ login, sessions        |-- limits.py ..... abuse limits (memory+db)
    |-- history.py ..... conversations API      |-- moderation.py . input/output checks
    |-- voice/ ......... session, gate, Deepgram relay, sentence splitter
    |-- agent/ ......... loop (model), tools (by role), confirm (pending writes), prompts
@@ -102,8 +102,9 @@ Typed input skips steps 1 to 4 and joins at step 5.
   current corpus, with a route to scale; two code paths to test.
 - Plain tool loop on the Anthropic SDK, bounded model calls per turn: easy to reason about, no
   framework features such as built-in retries or tracing.
-- State in Postgres, rate limits in memory: restarts lose nothing important, but limit counters reset
-  and would not be shared across several processes.
+- State in Postgres, rate limits checked in memory: daily allowances are persisted to Postgres every
+  30 seconds and reloaded at startup; short per-minute windows are in memory and reset on restart.
+  Counters are not shared across several processes.
 - College date from `/v1/today`, not the system clock: the sandbox clock is ahead; every date rule depends
   on it, so one failing call affects date answers.
 - Two interfaces: the React app is the main one and the classic pages stay as a no-build fallback, at the

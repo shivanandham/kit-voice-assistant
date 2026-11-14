@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     llm_effort: str = "low"
     llm_max_tokens: int = 4096
     llm_keep_warm: bool = True  # keep the prompt cache warm in the background
+    limits_persist: bool = True  # persist daily limit counters to Postgres
     llm_thinking: str = "adaptive"  # adaptive | disabled (disabled: faster first text)
     llm_fallback_enabled: bool = True  # REL1: answer with a second provider if Claude fails
     llm_fallback_model: str = "gemini-3.5-flash-lite"

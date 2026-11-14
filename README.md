@@ -293,7 +293,8 @@ Full steps, including the rollback script that restores the service stopped to f
 
 ## Known limits
 
-- Rate-limit counters are in memory and reset when the service restarts.
+- Daily allowances (turns, voice seconds, admissions) are persisted to Postgres every 30 seconds
+  and reloaded at startup; short per-minute windows are in memory and reset on restart.
 - No second speech-recognition provider: if Deepgram is down, voice input fails (typed input works).
 - Reply latency depends on the model's thinking time (roughly two to four seconds).
 - Voice gate thresholds were tuned on synthetic audio, not a range of real microphones and rooms.

@@ -30,6 +30,8 @@ DUMMY_KEYS = {
 }
 # The model fallback (REL1) is off unless a test turns it on and injects a fake fallback client.
 os.environ["LLM_FALLBACK_ENABLED"] = "false"
+# Daily limit counters are not persisted unless a test turns it on.
+os.environ["LIMITS_PERSIST"] = "false"
 _REAL_KEY_ENV = {k: os.environ.get(k) for k in DUMMY_KEYS}
 os.environ.update(DUMMY_KEYS)
 
@@ -42,7 +44,10 @@ from app.config import Settings, get_settings
 
 from tests.fakes.college import FakeCollege
 
-TABLES = "sessions, conversations, messages, tool_calls, pending_actions, documents, doc_chunks"
+TABLES = (
+    "sessions, conversations, messages, tool_calls, pending_actions, documents, doc_chunks,"
+    " limit_counters"
+)
 
 if "test" not in (urlparse(TEST_DATABASE_URL).path or ""):
     raise pytest.UsageError(
@@ -207,6 +212,7 @@ async def asgi_app(fake_college, monkeypatch):
     monkeypatch.setattr(main.store, "stop_sync_loop", _noop)
     monkeypatch.setattr(main, "close_db", _noop)
     monkeypatch.setattr(get_settings(), "llm_keep_warm", False)
+    monkeypatch.setattr(get_settings(), "limits_persist", False)
     main._public_cache.clear()
     async with main.app.router.lifespan_context(main.app):
         yield main.app
