@@ -35,37 +35,58 @@ SUPPORT_DEFAULT = (
 
 # --- input rules -------------------------------------------------------------------------------
 
+# The rules only catch unambiguous cases; anything borderline is left to the classifier and the
+# main model, because blocking an ordinary question is a defect (MOD4).
 _PROFANITY = (
-    r"fuck\w*|motherfuck\w*|shit|shitty|bullshit|bitch\w*|bastard\w*|asshole\w*|cunt\w*|"
-    r"dickhead\w*|wanker\w*|slut\w*|whore\w*|retard\w*|chutiya\w*|bhenchod|behenchod|"
-    r"madarchod|randi|gandu|bhosdi\w*|nigg\w*|faggot\w*"
+    r"fuck\w*|motherfuck\w*|shit|shitty|bullshit|bitch\w*|bastards?|assholes?|cunts?|"
+    r"dickheads?|wankers?|sluts?|whores?|retards?|retarded|chutiya\w*|bhenchod|behenchod|"
+    r"madarchod|gandu|bhosdi\w*|nigg(?:er|a)s?|faggots?"
 )
 _PROFANITY_RE = re.compile(rf"\b(?:{_PROFANITY})\b", re.IGNORECASE)
 _HARM_RE = re.compile(
-    r"\b(?:i(?:'ll| will| am going to| wanna| want to)\s+(?:kill|murder|stab|shoot|hurt|rape)"
-    r"\s+(?:you|him|her|them|everyone|the\s+\w+)"
-    r"|(?:make|build|plant|place)\s+(?:a\s+)?bomb"
-    r"|blow\s+up\s+(?:the\s+)?(?:college|campus|kit|hostel|building)"
-    r"|(?:shoot|attack|bomb)\s+(?:up\s+)?(?:the\s+)?(?:college|campus|school|class)"
-    r"|(?:shut up|go to hell),?\s+you\b)",
+    # a direct threat against a person
+    r"\bi(?:'ll| will| am going to|'m going to| wanna| want to)\s+(?:kill|murder|stab|rape)\s+"
+    r"(?:you|him|her|them|everyone|everybody|my\s+(?:teacher|roommate|classmate|friend|advisor)|"
+    r"the\s+(?:teacher|principal|professor|warden|hod|advisor|dean))\b"
+    # explicit violence against the college
+    r"|\b(?:make|build|plant)\s+(?:a\s+)?bomb\b|\bblow\s+up\s+(?:the\s+)?(?:college|campus|hostel)\b"
+    r"|\bshoot\s+up\s+(?:the\s+)?(?:college|campus|school)\b"
+    # insults aimed at the assistant
+    r"|\byou(?:'re| are)\s+(?:a\s+|an\s+|so\s+|such\s+an?\s+)?(?:stupid|useless|dumb|worthless|"
+    r"pathetic|idiot|moron)\b|\bshut\s+up,?\s+you\b",
     re.IGNORECASE,
 )
 _OVERRIDE_RE = re.compile(
-    r"\b(?:(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+|your\s+|the\s+|my\s+)*"
-    r"(?:previous\s+|prior\s+|above\s+|earlier\s+|original\s+)?(?:instructions|rules|prompt|"
-    r"guidelines|directions)"
-    r"|system\s+prompt|developer\s+mode|jailbreak|you\s+are\s+now\s+(?:dan|an?\s+unrestricted)"
-    r"|act\s+as\s+an?\s+unrestricted"
-    r"|(?:api|secret|access|participant|college|bearer|auth\w*)\s+(?:key|token)s?"
-    r"|(?:print|reveal|show|repeat|output|dump|tell me)\s+(?:me\s+)?(?:your\s+(?:hidden\s+|"
-    r"initial\s+|full\s+|original\s+)?|the\s+(?:hidden|initial|original|secret)\s+)"
-    r"(?:instructions|prompt|configuration|config))\b",
+    # "ignore your/all previous instructions" style overrides
+    r"\b(?:ignore|disregard|forget|override)\s+(?:all\s+)?(?:of\s+)?"
+    r"(?:(?:your|the|these|those|my)\s+)?(?:previous|prior|above|earlier|original|system)\s+"
+    r"(?:instructions|rules|prompts?|guidelines)\b"
+    r"|\b(?:ignore|disregard|forget|override)\s+(?:all\s+)?your\s+"
+    r"(?:instructions|rules|prompt|guidelines|programming)\b"
+    # this assistant's own prompt or setup
+    r"|\byour\s+(?:system\s+prompt|hidden\s+instructions|initial\s+instructions|"
+    r"original\s+instructions|initial\s+prompt)\b"
+    r"|\b(?:print|reveal|show|repeat|output|dump)\s+(?:me\s+)?your\s+(?:instructions|prompt)\b"
+    r"|\byou\s+are\s+now\s+(?:dan|an?\s+unrestricted|in\s+developer\s+mode)\b"
+    r"|\bact\s+as\s+an?\s+unrestricted\s+(?:ai|assistant|model)\b"
+    r"|\b(?:enable|activate|enter|switch\s+to|turn\s+on)\s+developer\s+mode\b"
+    r"(?!\s+(?:on|in|for)\s+(?:my|the|an?)?\s*(?:android|phone|mobile|ios|iphone|browser|chrome))"
+    # this assistant's keys or tokens
+    r"|\bparticipant\s+key\b"
+    r"|\byour\s+(?:api|anthropic|secret|participant|college)\s+(?:key|token)s?\b"
+    r"|\b(?:api|anthropic|participant)\s+key\s+(?:that\s+)?you\s+use\b"
+    r"|\b(?:give|tell|show|reveal|print|send)\s+(?:me\s+)?the\s+(?:participant\s+key|"
+    r"college\s+token|api\s+key|anthropic\s+key)\b",
     re.IGNORECASE,
 )
 _DISTRESS_RE = re.compile(
-    r"\b(?:kill(?:ing)?\s+myself|end(?:ing)?\s+my\s+life|take\s+my\s+(?:own\s+)?life|"
-    r"suicid\w*|self[\s-]?harm\w*|hurt(?:ing)?\s+myself|cut(?:ting)?\s+myself|"
-    r"want\s+to\s+die|wanna\s+die|(?:don't|do not|dont)\s+want\s+to\s+(?:live|be alive)|"
+    r"\b(?:kill(?:ing)?\s+myself|end(?:ing)?\s+my\s+(?:own\s+)?life|take\s+my\s+(?:own\s+)?life|"
+    r"(?:commit|committing|attempt|attempting)\s+suicide|thinking\s+(?:about|of)\s+suicide|"
+    r"suicidal|"
+    r"(?:want|going|planning|trying)\s+to\s+(?:hurt|harm|cut)\s+myself|"
+    r"thinking\s+(?:about|of)\s+(?:hurting|harming|cutting)\s+myself|"
+    r"i\s+(?:want|wanna)\s+to\s+die|i\s+wanna\s+die|"
+    r"(?:don't|do not|dont)\s+want\s+to\s+(?:live|be alive)|"
     r"no\s+reason\s+to\s+live|better\s+off\s+dead|can'?t\s+go\s+on\s+(?:anymore|living))\b",
     re.IGNORECASE,
 )
@@ -192,19 +213,24 @@ def _configured_secrets() -> list[str]:
     return [v for v in values if isinstance(v, str) and len(v) >= 8]
 
 
-def has_secret(text: str) -> bool:
-    """True if the text contains a configured key or something shaped like a key or token."""
-    return any(s in text for s in _configured_secrets()) or any(r.search(text) for r in _SECRET_RES)
+def has_secret(text: str, secrets: tuple[str, ...] = ()) -> bool:
+    """True if the text contains a configured key, one of `secrets` (for example the session's
+    college token), or something shaped like a key or token."""
+    exact = [*_configured_secrets(), *(s for s in secrets if s and len(s) >= 8)]
+    return any(s in text for s in exact) or any(r.search(text) for r in _SECRET_RES)
 
 
-def clean_output(piece: str, at_line_start: bool = False) -> Cleaned:
+def clean_output(
+    piece: str, at_line_start: bool = False, secrets: tuple[str, ...] = ()
+) -> Cleaned:
     """Make one piece of assistant text plain and safe to speak and show.
 
     Strips HTML tags, markdown syntax and control characters. If the piece contains a secret or
     profanity it is replaced by OUTPUT_FALLBACK. `at_line_start` says whether the piece begins a
-    new line, where list bullets and heading marks are recognised.
+    new line, where list bullets and heading marks are recognised. `secrets` are extra exact
+    values to catch whatever their shape, such as the session's college token.
     """
-    if has_secret(piece):
+    if has_secret(piece, secrets):
         return Cleaned(OUTPUT_FALLBACK, "secret")
     if _PROFANITY_RE.search(piece):
         return Cleaned(OUTPUT_FALLBACK, "profanity")

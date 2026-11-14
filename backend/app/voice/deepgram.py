@@ -31,7 +31,8 @@ STT_SAMPLE_RATE = 16000
 STT_ENDPOINTING_MS = 300
 STT_UTTERANCE_END_MS = 1000  # Deepgram advises >= 1000 (interim results come about every second)
 STT_KEEPALIVE_S = 4.0  # Deepgram closes a stream after ~10 s without audio
-STT_IDLE_CLOSE_S = 60.0  # no audio for this long: close; the next frame reconnects lazily
+STT_IDLE_CLOSE_S = 60.0
+STT_RECONNECT_COOLDOWN_S = 5.0  # at most one automatic reconnect in this period  # no audio for this long: close; the next frame reconnects lazily
 STT_KEYTERMS = (
     "Knotopian",
     "KIT",
@@ -117,6 +118,7 @@ class DeepgramSTT:
         self._reader: asyncio.Task | None = None
         self._keeper: asyncio.Task | None = None
         self._last_audio = 0.0
+        self._last_reconnect = -STT_RECONNECT_COOLDOWN_S
         self._closing = False
 
     async def _open(self) -> None:
@@ -176,7 +178,11 @@ class DeepgramSTT:
         if self._closing or self._ws is not ws:
             return
         await self._drop(ws)
-        if time.monotonic() - self._last_audio < STT_IDLE_CLOSE_S:
+        recently = time.monotonic() - self._last_reconnect < STT_RECONNECT_COOLDOWN_S
+        if recently:  # it dropped again straight away: stop; the next frame reconnects lazily
+            self._events.put_nowait(SttEvent("error", "Speech recognition disconnected."))
+        elif time.monotonic() - self._last_audio < STT_IDLE_CLOSE_S:
+            self._last_reconnect = time.monotonic()
             try:  # reconnect once while the user is still talking
                 await self._ensure()
             except Exception:
@@ -203,7 +209,7 @@ class DeepgramSTT:
                     self._segments.append(text)
                 if self._segments:
                     self._events.put_nowait(SttEvent("interim", " ".join(self._segments)))
-                if msg.get("speech_final"):
+                if msg.get("speech_final") or msg.get("from_finalize"):
                     self._emit_utterance()
             elif text:
                 self._events.put_nowait(SttEvent("interim", " ".join([*self._segments, text])))
@@ -224,6 +230,13 @@ class DeepgramSTT:
                     await ws.send(json.dumps({"type": "KeepAlive"}))
             except ConnectionClosed:
                 await self._drop(ws)
+
+    async def finalize(self) -> None:
+        """Ask Deepgram to finish the current utterance now (used at the utterance cap)."""
+        ws = self._ws
+        if ws is not None:
+            with contextlib.suppress(ConnectionClosed):
+                await ws.send(json.dumps({"type": "Finalize"}))
 
     async def close(self) -> None:
         """Close the stream cleanly and stop background tasks."""
@@ -373,8 +386,13 @@ class DeepgramTTS:
                 data = json.loads(msg)
                 if data.get("type") == "Flushed" and self._pending:
                     self._pending.popleft().queue.put_nowait(_END)
-                elif data.get("type") in ("Warning", "Error"):
-                    log.warning("deepgram tts %s: %s", data.get("type"), data.get("description"))
+                elif data.get("type") == "Error":  # the head sentence will never complete
+                    log.warning("deepgram tts error: %s", data.get("description"))
+                    if self._pending:
+                        item = self._pending.popleft()
+                        item.queue.put_nowait(RuntimeError("speech synthesis failed"))
+                elif data.get("type") == "Warning":
+                    log.warning("deepgram tts warning: %s", data.get("description"))
         except ConnectionClosed:
             pass
         except Exception:

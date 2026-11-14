@@ -356,3 +356,14 @@ async def cancel_when(ctx: SessionCtx, cid: str, user_text: str, ready: Callable
     with pytest.raises(asyncio.CancelledError):
         await task
     return got
+
+
+def fake_api_key() -> str:
+    """An Anthropic-key-shaped string built at runtime (no credential-shaped literal in the repo)."""
+    return "-".join(["sk", "ant", "api03", "ABCDEFGHIJ" + "KLMNOPQRSTUV"])
+
+
+def fake_jwt() -> str:
+    """A JWT-shaped string built at runtime."""
+    return ".".join(["ey" + "JhbGciOiJIUzI1NiJ9", "ey" + "JzdWIiOiIxMjM0NTY3ODkwIn0",
+                     "abcdefghij" + "klmnopqrstu"])

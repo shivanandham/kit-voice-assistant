@@ -57,7 +57,8 @@ TOOL_LABELS = {
     "list_class_requests": "College system: student requests",
 }
 _DOC_KEYS = ("ref", "document_title", "version", "section", "heading", "page_start", "page_end")
-_BOUNDARY_RE = re.compile(r"[,;:.!?]+[\"')\]]*[ \t]+|\n+")
+_BOUNDARY_RE = re.compile(r"[,;:.!?]+[\"')\]]*[ \t]+|\n+")  # pieces end at clause boundaries
+_OPEN_MARKUP_RE = re.compile(r"<[^>\n]*$|\[[^\]\n]*$|\]\([^)\n]*$")  # unclosed tag or link
 _REF_RE = re.compile(r"D\d+:[A-Za-z0-9][A-Za-z0-9./\-]*")
 
 _client: anthropic.AsyncAnthropic | None = None
@@ -108,7 +109,7 @@ def _starts_turn(message: dict) -> bool:
 
 def _window() -> int:
     """How many messages at most go to the model (settings.history_window, default 20)."""
-    return max(2, int(getattr(get_settings(), "history_window", MAX_CACHED_MESSAGES)))
+    return max(2, int(get_settings().history_window))
 
 
 def _trim(messages: list[dict], limit: int | None = None) -> list[dict]:
@@ -125,13 +126,32 @@ def _trim(messages: list[dict], limit: int | None = None) -> list[dict]:
     return messages[starts[-1]:] if starts else messages[-1:]
 
 
+def _strip_thinking(messages: list[dict]) -> list[dict]:
+    """Drop thinking blocks from finished turns.
+
+    A thinking block's signature is bound to everything before it, including the system prompt.
+    The per-user system block changes between turns (pending actions, the college date) and the
+    history window drops old turns, so replaying old thinking would be rejected with a 400.
+    Blocks are still passed back unchanged within a turn's tool loop.
+    """
+    out: list[dict] = []
+    for message in messages:
+        if message["role"] == "assistant" and not isinstance(message["content"], str):
+            content = [b for b in message["content"]
+                       if _field(b, "type") not in ("thinking", "redacted_thinking")]
+            _append(out, "assistant", content)
+        else:
+            _append(out, message["role"], _blocks(message["content"]))
+    return out
+
+
 def _remember(conversation_id: str, messages: list[dict], owner_key: str | None = None) -> None:
-    """Store the conversation's message list in the bounded in-memory cache.
+    """Store the conversation's message list (without thinking) in the bounded in-memory cache.
 
     Eviction is oldest first and never touches a conversation with a turn in flight, so its lock
     keeps serialising turns.
     """
-    _memory[conversation_id] = _trim(messages)
+    _memory[conversation_id] = _trim(_strip_thinking(messages))
     _memory.move_to_end(conversation_id)
     if owner_key is not None:
         _owners[conversation_id] = owner_key
@@ -224,7 +244,7 @@ async def warm_cache() -> None:
     """
     try:
         settings = get_settings()
-        if not getattr(settings, "llm_keep_warm", True):
+        if not settings.llm_keep_warm:
             return
         variants = await _warm_variants()
 
@@ -237,6 +257,7 @@ async def warm_cache() -> None:
                 tools=specs,
                 messages=[{"role": "user", "content": "warmup"}],
                 output_config={"effort": settings.llm_effort},
+                **_thinking(settings),
             )
             usage = message.usage
             log.info("cache warm %s read=%s write=%s in %.2fs", label,
@@ -252,16 +273,28 @@ async def warm_cache() -> None:
         log.exception("cache warm failed")
 
 
-def _log_usage(message: Any, started: float, first_text: float | None) -> None:
+def _thinking(settings: Any) -> dict:
+    """Extra request arguments for the thinking mode: none for the model's default (adaptive),
+    or thinking disabled when settings.llm_thinking is "disabled" (shorter time to first text)."""
+    if getattr(settings, "llm_thinking", "adaptive") == "disabled":
+        return {"thinking": {"type": "disabled"}}
+    return {}
+
+
+def _log_usage(
+    message: Any, started: float, first_text: float | None, first_token: float | None = None
+) -> None:
     """Log token usage and timing for one model call."""
     usage = message.usage
     log.info(
-        "llm call stop=%s in=%s out=%s cache_read=%s cache_write=%s ttft=%s total=%.2fs",
+        "llm call stop=%s in=%s out=%s cache_read=%s cache_write=%s first_token=%s ttft=%s"
+        " total=%.2fs",
         message.stop_reason,
         getattr(usage, "input_tokens", None),
         getattr(usage, "output_tokens", None),
         getattr(usage, "cache_read_input_tokens", None),
         getattr(usage, "cache_creation_input_tokens", None),
+        f"{first_token - started:.2f}s" if first_token else "-",
         f"{first_text - started:.2f}s" if first_text else "-",
         time.monotonic() - started,
     )
@@ -283,9 +316,12 @@ async def _run_one(
         except Exception:
             log.exception("could not log a refused tool call")
         return tools.ToolResult(json.dumps(refusal), True)
+    started = time.monotonic()
     try:
-        return await tools.run_tool(_field(block, "name"), _field(block, "input") or {}, ctx,
-                                    conversation_id)
+        result = await tools.run_tool(_field(block, "name"), _field(block, "input") or {}, ctx,
+                                      conversation_id)
+        log.info("tool %s took %.2fs", _field(block, "name"), time.monotonic() - started)
+        return result
     except Exception:
         log.exception("tool %s failed", _field(block, "name"))
         return tools.ToolResult(json.dumps({"error": "The tool failed unexpectedly."}), True)
@@ -340,12 +376,14 @@ async def run_turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> Asy
 class _Speech:
     """Turns streamed model text into clean, whole-word pieces and holds back the SOURCES line.
 
-    Text is cut at clause and sentence boundaries, each piece passes moderation.clean_output, and
+    Text is cut at clause and sentence boundaries (never inside an unclosed HTML tag or markdown
+    link, so those can be stripped whole), each piece passes moderation.clean_output, and
     a final "SOURCES: ..." line (any case or spacing, even split across deltas) is captured instead
     of being emitted. Once a piece is blocked, everything after it is dropped.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, secrets: tuple[str, ...] = ()) -> None:
+        self.secrets = secrets
         self.buffer = ""
         self.at_line_start = True
         self.sources_raw = ""
@@ -378,14 +416,19 @@ class _Speech:
                 break
             if not final and head and "sources:".startswith(head):
                 break  # might be the start of the SOURCES line; wait for more text
-            m = _BOUNDARY_RE.search(self.buffer)
+            m = None
+            for candidate in _BOUNDARY_RE.finditer(self.buffer):
+                if not _OPEN_MARKUP_RE.search(self.buffer[: candidate.start()]):
+                    m = candidate
+                    break
             if m is None:
                 if not final:
                     break
                 piece, self.buffer = self.buffer, ""
             else:
                 piece, self.buffer = self.buffer[: m.end()], self.buffer[m.end():]
-            cleaned = moderation.clean_output(piece, at_line_start=self.at_line_start)
+            cleaned = moderation.clean_output(piece, at_line_start=self.at_line_start,
+                                              secrets=self.secrets)
             self.at_line_start = piece.endswith("\n")
             if cleaned.blocked:
                 self.blocked = cleaned.blocked
@@ -474,7 +517,7 @@ async def _turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> AsyncI
     open_uses: list = []  # tool_use blocks appended to messages but not yet answered
     ran: dict[str, tools.ToolResult] = {}  # results of open_uses that have finished
     used_tools: list[str] = []  # successful tool calls this turn, for citations
-    speech = _Speech()
+    speech = _Speech(secrets=tuple(s for s in (ctx.kit_token,) if s))
     rules = moderation.check_input(user_text)
     classifier: asyncio.Task | None = None
     verdict: tuple[str, str] | None = None
@@ -510,7 +553,7 @@ async def _turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> AsyncI
 
     if rules != "ok":
         verdict = (rules, "rules")
-    elif getattr(settings, "moderation_llm", True):
+    elif settings.moderation_llm:
         classifier = asyncio.ensure_future(
             moderation.classify(_get_client(), settings.llm_model, user_text))
 
@@ -527,7 +570,7 @@ async def _turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> AsyncI
         for call in range(1, MAX_MODEL_CALLS + 1):
             if category != "ok":
                 break
-            started, first_text = time.monotonic(), None
+            started, first_text, first_token = time.monotonic(), None, None
             call_text.clear()
             message = None
             async with _get_client().messages.stream(
@@ -537,11 +580,13 @@ async def _turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> AsyncI
                 tools=specs,
                 messages=_trim(messages),
                 output_config={"effort": settings.llm_effort},
+                **_thinking(settings),
                 cache_control={"type": "ephemeral"},  # second breakpoint: the conversation tail
             ) as stream:
                 async for event in stream:
                     if event.type != "text" or not event.text:
                         continue
+                    first_token = first_token or time.monotonic()
                     pieces = speech.feed(event.text)
                     if pieces and (await gate())[0] != "ok":
                         category = verdict[0]
@@ -561,7 +606,7 @@ async def _turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> AsyncI
                             first_text = first_text or time.monotonic()
                             yield emit(piece)
             if message is not None:
-                _log_usage(message, started, first_text)
+                _log_usage(message, started, first_text, first_token)
             if category != "ok":
                 break  # the model verdict blocked the turn; nothing was said or run
             if speech.blocked:
@@ -635,7 +680,8 @@ async def _turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> AsyncI
         await _save_interrupted(conversation_id, owner, messages, spoken, call_text, open_uses, ran)
         raise
     except anthropic.APIError as exc:
-        log.error("anthropic error: %s %s", type(exc).__name__, getattr(exc, "status_code", ""))
+        log.error("anthropic error: %s %s %s", type(exc).__name__, getattr(exc, "status_code", ""),
+                  str(getattr(exc, "message", ""))[:300])
         await _save_partial(conversation_id, owner, messages, spoken, call_text, open_uses, ran)
         yield {"type": "error", "message": ERROR_TEXT}
         return

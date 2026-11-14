@@ -411,8 +411,8 @@ async def test_rel1_stt_connect_failure_raises_to_caller_and_recovers():
     await stt.close()
 
 
+# DEFECT: every connection that drops immediately triggers another reconnect with no limit or back-off (DeepgramSTT._read) (medium).
 async def test_rel1_stt_reconnect_is_bounded_when_server_keeps_dropping():
-    # DEFECT: every connection that drops immediately triggers another reconnect with no limit or back-off (DeepgramSTT._read) (medium).
     plan = [lambda: _dropped() for _ in range(150)]
     con = Connector(plan, limit=150)
     stt = DeepgramSTT(KEY, "nova-3", connect=con)

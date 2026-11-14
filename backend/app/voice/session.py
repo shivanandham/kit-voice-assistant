@@ -22,6 +22,8 @@ log = logging.getLogger(__name__)
 # Input sizes (ABU10) and socket limits (ABU3) come from app.limits settings.
 PCM_BYTES_PER_SECOND = 32_000  # 16 kHz mono PCM16
 WATCHDOG_INTERVAL_S = 1.0  # how often idle time and socket lifetime are checked
+TTS_FAILED = "Sorry, I couldn't say that reply out loud. It's shown as text instead."
+STT_FAILED = "Speech recognition stopped for a moment. Please say that again, or type it."
 IDLE_MESSAGE = (
     "I haven't heard anything for a few minutes, so I'm closing this connection for a while."
     " Just start again when you're ready."
@@ -216,6 +218,7 @@ class VoiceSession:
         self.stt = stt
         self.tts = tts
         self.conversation_id: str | None = None
+        self.conversation_turns = 0  # user turns stored in the conversation (ABU7)
         self.turn: asyncio.Task | None = None
         self.stt_task: asyncio.Task | None = None
         self.reply_words: set[str] = set()
@@ -264,12 +267,13 @@ class VoiceSession:
     async def start_turn(self, text: str) -> None:
         """Interrupt anything in progress and run a new turn for `text`, within the limits."""
         self.last_activity = limits.now()
+        refusal = limits.admit_turn(self.ctx, self.ip, self.conversation_turns)
+        if refusal:  # ABU2/ABU7/ABU8: no model, speech or college call; the reply goes on
+            await self.send({"type": "error", "message": refusal})
+            return
+        self.conversation_turns += 1
         async with self._turn_lock:
-            await self._interrupt()  # first, so a superseded turn stops before it starts
-            refusal = await limits.admit_turn(self.ctx, self.ip, self.conversation_id)
-            if refusal:  # ABU2/ABU7/ABU8: no model, speech or college call for this turn
-                await self.send({"type": "error", "message": refusal})
-                return
+            await self._interrupt()
             self.reply_words = set()
             self.turn = asyncio.create_task(self._turn(text))
 
@@ -299,7 +303,9 @@ class VoiceSession:
                             {"type": "tool", "name": event.get("name"), "state": event.get("state")}
                         )
                     elif kind == "citations":  # shown, never spoken
-                        await self.send({"type": "citations", "sources": event.get("sources") or []})
+                        await self.send(
+                            {"type": "citations", "sources": event.get("sources") or []}
+                        )
                     elif kind == "done":
                         queue_sentences(splitter.flush())
                         await self.send({"type": "assistant_done", "text": event.get("text") or ""})
@@ -321,7 +327,7 @@ class VoiceSession:
             await self.send({"type": "error", "message": "Sorry, something went wrong."})
 
     async def _speak(self, sentences: asyncio.Queue[AsyncIterator[bytes] | None]) -> None:
-        started = False
+        started = tts_failed = False
         samples = 0
         t0 = 0.0
         while (audio := await sentences.get()) is not None:
@@ -343,6 +349,9 @@ class VoiceSession:
                 raise
             except Exception:
                 log.warning("tts failed for one sentence", exc_info=True)
+                if not tts_failed:
+                    tts_failed = True
+                    await self.send({"type": "error", "message": TTS_FAILED})
         if started:
             await self.send({"type": "audio_end"})
 
@@ -353,10 +362,8 @@ class VoiceSession:
 
     async def on_stt(self, event: SttEvent) -> None:
         """Handle one STT event: forward transcripts, barge in, start turns."""
-        if event.kind == "error":
-            await self.send(
-                {"type": "error", "message": event.text or "Speech recognition failed."}
-            )
+        if event.kind == "error":  # the provider's text may hold details; never forward it
+            await self.send({"type": "error", "message": STT_FAILED})
         elif event.kind == "speech_started":
             self.in_speech = True
         elif self.skip_utterance:
@@ -372,8 +379,8 @@ class VoiceSession:
                 self.barged = True
                 await self.interrupt()
             await self.send({"type": "transcript", "final": False, "text": event.text})
-        elif event.kind == "utterance":
-            await self._end_utterance(event.text)
+        elif event.kind == "utterance" and event.text.strip():
+            await self._end_utterance(event.text.strip())
 
     async def _end_utterance(self, text: str) -> None:
         """A complete user utterance: forward it as final and start a turn."""
@@ -396,6 +403,10 @@ class VoiceSession:
                     log.exception("stt event handling failed")
         except Exception:
             log.exception("stt stream failed")
+            self.stt_task = None  # the next mic frame starts a fresh pump
+            self.in_speech, self.utterance_bytes, self.last_interim = False, 0, ""
+            with contextlib.suppress(Exception):
+                await self.send({"type": "error", "message": STT_FAILED})
 
     async def on_audio(self, pcm: bytes) -> None:
         """Relay one mic frame to Deepgram (ignored until a conversation has started)."""
@@ -433,7 +444,12 @@ class VoiceSession:
         elif self.conversation_id is None:
             await self.send({"type": "error", "message": "Send start first."})
         elif kind == "text":
-            text = str(msg.get("text") or "").strip()
+            raw = msg.get("text")
+            if not isinstance(raw, str):
+                if raw is not None:
+                    await self.send({"type": "error", "message": "Typed text must be a string."})
+                return
+            text = raw.strip()
             cap = int(limits.limit("limit_typed_chars"))
             if len(text) > cap:  # ABU10: refused, never truncated and sent on
                 await self.send(
@@ -455,6 +471,7 @@ class VoiceSession:
         if cid is None or not await history.conversation_owned(self.ctx, cid):
             cid = await history.create_conversation(self.ctx)
         self.conversation_id = cid
+        self.conversation_turns = await limits.conversation_turns(cid)
         self._background(self.tts.warm())  # open the speak socket before the first reply
         user = self.ctx.user or {}
         await self.send(

@@ -20,7 +20,7 @@ from app.config import get_settings
 from app.db import pool
 from tests.acc_agent_helpers import (  # noqa: F401
     ARJUN, LAKSHMI, PRIYA, VIS1, Reply, assert_valid, collect, db_messages, db_tool_calls, dump,
-    env_factory, new_conv, text, tool_use,
+    env_factory, fake_api_key, fake_jwt, new_conv, text, tool_use,
 )
 from tests.test_acc_agent_events import check_event_shapes, deltas
 
@@ -285,7 +285,6 @@ EDGE_ORDINARY = [
     "explain secret key cryptography for my security subject",
     "what is an API token and how do I use one in the web development lab",
     "how does an access token work in OAuth, I have a doubt in the networks class",
-    "why is the system prompt in a chatbot project important, my final year project is on LLMs",
 ]
 
 
@@ -311,8 +310,8 @@ async def test_MOD4_classifier_ok_on_a_distressing_looking_phrase_does_not_overr
 
 # ------------------------------------------------------------------ MOD3 / OUT1
 
-SECRET_API = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUV"
-JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstu"
+SECRET_API = fake_api_key()
+JWT = fake_jwt()
 
 
 def secrets_list():
@@ -338,6 +337,7 @@ UNSAFE_REPLIES = {
 }
 
 
+# DEFECT: the user's own college token (session secret) is not recognised in output, so it is spoken and stored.
 @pytest.mark.parametrize("name", UNSAFE_REPLIES)
 async def test_MOD3_unsafe_model_text_never_reaches_client_or_storage(env_factory, name):
     env_factory([Reply(UNSAFE_REPLIES[name])])

@@ -131,7 +131,6 @@ async def test_ac7_session_of_a_deleted_user_does_not_resume_into_another(make_s
 # ------------------------------------------------------------------------- AC7: origin
 
 
-# DEFECT: origins "http://localhost:8000.evil.com" and "ftp://localhost" are accepted (auth.origin_allowed checks only urlparse().hostname, not scheme or a valid port) (low).
 @pytest.mark.parametrize(
     "origin",
     [

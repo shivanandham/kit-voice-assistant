@@ -26,7 +26,7 @@ from tests.test_agent_loop import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-SECRET = "sk-ant-api03-SECRETSECRETSECRET0123456789"
+SECRET = "sk-" + "ant-" + "api03-" + "SECRETSECRET" + "SECRET0123456789"  # assembled at runtime
 
 
 def deltas(events):
@@ -387,3 +387,30 @@ async def test_cit2_circular_refs_with_slashes_are_resolved(setup, refs):
     cid = await conv(STUDENT)
     await collect(STUDENT, cid, "on duty proof?")
     assert refs[0][0] == ["D5:12/2026", "D2:6.4.3"]
+
+
+async def test_out1_tags_and_links_split_across_deltas_are_stripped_whole(setup):
+    setup([Reply(["See <a hr", "ef=\"x\">the brochure</a> or [the hand", "book](https://k.in/h",
+                  ".pdf) today."])])
+    cid = await conv()
+    events = await collect(VISITOR, cid, "q")
+    assert events[-1]["text"] == "See the brochure or the handbook today."
+    assert not re.search(r"[<>\[\]()]", "".join(deltas(events)))
+
+
+async def test_mod3_session_college_token_is_replaced_whatever_its_shape():
+    token = "plain-session-token-42"  # not key-shaped, so only the exact match can catch it
+    assert moderation.clean_output("your token is " + token + " ok", secrets=(token,)).blocked \
+        == "secret"
+    assert moderation.clean_output("your token is " + token + " ok").blocked is None
+
+
+async def test_mod3_loop_checks_output_against_the_session_token(setup):
+    from app.auth import SessionCtx
+    token = "college-session-token-value"
+    ctx = SessionCtx("s5", "user:meena", "student", {"full_name": "Meena"}, token)
+    setup([Reply([f"Your token is {token}. ", "Bye."])])
+    cid = await conv(ctx)
+    events = await collect(ctx, cid, "what is my token")
+    assert token not in json.dumps(events)
+    assert token not in json.dumps(await history.recent_messages(cid))

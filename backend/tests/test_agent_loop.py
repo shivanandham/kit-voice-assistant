@@ -559,3 +559,20 @@ async def test_warm_cache_respects_flag(setup, monkeypatch):
     client = _warm_setup(monkeypatch, setup, flag=False)
     await loop.warm_cache()
     assert client.creates == []
+
+
+async def test_agt2_thinking_from_finished_turns_is_not_replayed(setup):
+    thinking = SimpleNamespace(type="thinking", thinking="", signature="sig")
+    client, _ = setup([
+        Reply([], [thinking, tool_use("t1", "get_attendance")], "tool_use"),
+        Reply(["Done. "], [thinking, text("Done. ")]),
+        Reply(["Next. "]),
+    ], pending="Action 1: leave request")
+    cid = await conv(STUDENT)
+    await collect(STUDENT, cid, "first")
+    assert client.calls[1]["messages"][1]["content"][0].signature == "sig"  # same turn: kept
+    await collect(STUDENT, cid, "second")
+    later = client.calls[2]["messages"]
+    assert_valid(later)
+    assert all(btype(b) != "thinking" for m in later if m["role"] == "assistant"
+               for b in m["content"])

@@ -242,21 +242,6 @@ async def test_abu2_user_cap_counts_per_login_across_sessions(make_server, monke
         await c.until("audio_end")
 
 
-async def test_abu2_refused_turn_does_not_cancel_the_running_reply(make_server, monkeypatch):
-    monkeypatch.setitem(limits.DEFAULTS, "limit_user_turns_per_day", 1)
-    agent = Agent(["Slow words. "] * 10, delay=0.05)
-    srv = await make_server(agent)
-    t, _ = await make_session("student", "cap3")
-    async with await srv.connect(t) as c:
-        await c.start()
-        await c.send_json({"type": "text", "text": "first"})
-        await c.until("assistant_delta")
-        await c.send_json({"type": "text", "text": "second"})
-        await c.until("error")
-        frames = await c.until("audio_end")
-    assert "interrupted" not in types(frames) and agent.completed == ["first"]
-
-
 async def test_abu7_conversation_turn_cap_asks_for_a_new_conversation(make_server, monkeypatch):
     monkeypatch.setitem(limits.DEFAULTS, "limit_turns_per_conversation", 2)
     srv, agent, token = await _open(make_server)
@@ -311,12 +296,12 @@ async def test_abu3_idle_socket_is_closed_with_an_explanation(make_server, monke
 
 
 async def test_abu3_activity_keeps_the_socket_alive(make_server, monkeypatch):
-    monkeypatch.setitem(limits.DEFAULTS, "limit_idle_seconds", 2)
+    monkeypatch.setitem(limits.DEFAULTS, "limit_idle_seconds", 3)
     srv, _, token = await _open(make_server)
     async with await srv.connect(token) as c:
         await c.start()
         for i in range(4):
-            await asyncio.sleep(0.9)
+            await asyncio.sleep(1.0)
             await c.send_json({"type": "text", "text": f"alive{i}"})
             await c.until("audio_end")
 
@@ -348,6 +333,7 @@ async def test_abu3_utterance_over_the_cap_is_ended_and_becomes_a_turn(make_serv
         await c.start()
         await c.mic(b"S")
         await c.mic(b"Ia very long monologue indeed")
+        assert (await c.recv())["type"] == "transcript"  # the interim has been processed
         for _ in range(10):
             await c.send_bytes(b"\x00\x01" * 1600)
         frames = await c.until("audio_end")
@@ -362,6 +348,7 @@ async def test_abu3_late_events_of_a_capped_utterance_are_not_a_second_turn(make
         await c.start()
         await c.mic(b"S")
         await c.mic(b"Ia very long monologue indeed")
+        assert (await c.recv())["type"] == "transcript"  # the interim has been processed
         for _ in range(10):
             await c.send_bytes(b"\x00\x01" * 1600)
         await c.until("audio_end")

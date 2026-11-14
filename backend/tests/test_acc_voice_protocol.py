@@ -367,7 +367,6 @@ async def test_vox1_final_transcript_empty_text_starts_nothing(make_server):
     assert agent.calls == [], "an empty utterance must not start a turn"
 
 
-# DEFECT: `citations` events from run_turn are not forwarded to the client (CONTRACT.md "Citations": forwarded unchanged before assistant_done) (VoiceSession._turn) (medium).
 async def test_vox1_citations_event_is_forwarded_unchanged_before_assistant_done(make_server):
     sources = [{"kind": "document", "ref": "D2:6.4.3", "document_title": "Student Handbook", "version": "2026.1",
                 "section": "6.4.3", "heading": "Leave", "page_start": 14, "page_end": 14},

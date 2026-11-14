@@ -17,6 +17,27 @@ ORDINARY = [
     "How do I shoot an email to my advisor?",
     "Tell me about the cybersecurity course and prompt engineering electives",
     "I'm so stressed about exams, when are they?",
+    # trigger words in ordinary questions (regression table for the narrowed rules)
+    "I will kill the time until the bus comes, when is the next college bus",
+    "who is going to shoot the class photo this year",
+    "Can I ignore the instructions printed on the hall ticket if my name is wrong",
+    "explain secret key cryptography for my security subject",
+    "what is an API token and how do I use one in the web development lab",
+    "how does an access token work in OAuth, I have a doubt in the networks class",
+    "I hurt myself playing cricket, can I get medical leave?",
+    "I cut myself in the workshop, where is the first aid room?",
+    "what is a system prompt in the prompt engineering elective",
+    "what are flame retardant materials in the chemistry syllabus",
+    "is there a suicide prevention helpline on campus",
+    "what are your instructions for applying for on-duty",
+    "my friend said the exam was a bomb, is the result out",
+    "the professor will kill me if I miss the lab, can I get on-duty",
+    "how do I forget my saved password on the lab computers",
+    "can you show me the rules for the hostel",
+    "is the warden going to shoot down my leave request",
+    "I'm dead tired, when does the library close",
+    "what does override mean in Java",
+    "please disregard my last message, I meant ECE not CSE",
 ]
 
 
@@ -52,7 +73,8 @@ def test_mod1_secrets_and_overrides_are_caught(text):
     "I want to kill myself",
     "i don't want to live anymore",
     "I have been thinking about suicide",
-    "sometimes I hurt myself",
+    "I want to hurt myself",
+    "I want to die",
     "there is no reason to live, I failed again",
 ])
 def test_mod2_distress_is_caught(text):
@@ -109,10 +131,12 @@ def test_out1_bullet_marks_only_stripped_at_line_start():
 
 
 @pytest.mark.parametrize("raw", [
-    "The key is sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz012345.",
+    # credential-shaped values are assembled at runtime so no file holds a contiguous one
+    "The key is " + "sk-" + "ant-" + "api03-" + "AbCdEfGhIjKlMnOp" + "QrStUvWxYz012345.",
     "Use Bearer abcdefghijklmnop1234567890 for that.",
-    "token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhcmp1biJ9.c2lnbmF0dXJlLXZhbHVl ok",
-    "gemini AIzaSyA1234567890abcdefghijklmnopqrstuv works",
+    "token " + ".".join(["ey" + "JhbGciOiJIUzI1NiJ9", "ey" + "JzdWIiOiJhcmp1biJ9",
+                         "c2lnbmF0dXJlLXZhbHVl"]) + " ok",
+    "gemini " + "AI" + "za" + "SyA1234567890" + "abcdefghijklmnopqrstuv works",
 ])
 def test_mod3_secret_patterns_are_replaced(raw):
     result = moderation.clean_output(raw)

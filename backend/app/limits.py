@@ -224,9 +224,13 @@ async def conversation_turns(conversation_id: str | None) -> int:
     )
 
 
-async def admit_turn(ctx: Any, ip: str, conversation_id: str | None) -> str | None:
-    """Check and record one turn; return a spoken-style refusal, or None when allowed."""
-    if await conversation_turns(conversation_id) >= limit("limit_turns_per_conversation"):
+def admit_turn(ctx: Any, ip: str, conversation_turns: int) -> str | None:
+    """Check and record one turn; return a spoken-style refusal, or None when allowed.
+
+    Synchronous on purpose: no await between the check and the record, and none before the
+    caller hands over to the new turn. `conversation_turns` is the caller's running count.
+    """
+    if conversation_turns >= limit("limit_turns_per_conversation"):
         return NEW_CONVERSATION
     visitor = ctx.role == "visitor"
     budget = limit("limit_daily_turns" if visitor else "limit_daily_turns_users")
