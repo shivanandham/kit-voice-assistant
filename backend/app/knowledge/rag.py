@@ -267,7 +267,7 @@ async def embed_missing(document_id: int | None = None, *, skip_if_busy: bool = 
                                          wait_on_429=True)
             await db.pool().executemany(
                 "UPDATE doc_chunks SET embedding=$2 WHERE id=$1 AND embedding IS NULL",
-                [(r["id"], v) for r, v in zip(batch, vectors)],
+                [(r["id"], v) for r, v in zip(batch, vectors, strict=True)],
             )
         if rows:
             log.info("embedded %d chunks", len(rows))

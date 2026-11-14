@@ -155,7 +155,7 @@ async def _cached_public(key: str):
     try:
         data = await getattr(KitClient(), key)()
     except Exception:
-        raise HTTPException(503, "The college system is unavailable right now.")
+        raise HTTPException(503, "The college system is unavailable right now.") from None
     _public_cache[key] = (time.monotonic(), data)
     return data
 

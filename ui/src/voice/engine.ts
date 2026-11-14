@@ -27,6 +27,8 @@ export type ChatMessage = {
   /** a write tool ran in this turn and the reply asks a question: an action awaits confirmation */
   confirm?: boolean
   streaming?: boolean
+  /** spoken with the browser's speech synthesis because no reply audio arrived */
+  browserVoice?: boolean
 }
 
 export type VoiceSnapshot = {
@@ -85,6 +87,11 @@ export class VoiceEngine {
   private stopReconnect = false // server said the session timed out
   private writeToolThisTurn = false
   private muted = false // voice replies off: incoming reply audio is not played
+  // Fallback output when the speech service fails: browser speech synthesis (output only).
+  private turn = 0 // bumped on every new turn so a late fallback timer is ignored
+  private gotAudio = false // reply audio (audio_start or frames) arrived in this turn
+  private ttsActive = false
+  private ttsTimer: ReturnType<typeof setTimeout> | undefined
   // Level meters for the visual only (taps; they do not change the audio path).
   private inAnalyser: AnalyserNode | null = null
   private outAnalyser: AnalyserNode | null = null
@@ -165,6 +172,7 @@ export class VoiceEngine {
     this.thinking = true
     this.dropAudio = false
     this.writeToolThisTurn = false
+    this.newTurn()
     this.showError("")
     if (this.wsReady) this.send({ type: "text", text })
     else { this.pendingText.push(text); this.connect() }
@@ -243,9 +251,10 @@ export class VoiceEngine {
 
   // ---------- playback ----------
   private isPlaying(): boolean {
-    return this.sources.size > 0 || !!(this.ctx && this.replyAudio && this.nextTime > this.ctx.currentTime)
+    return this.ttsActive || this.sources.size > 0 || !!(this.ctx && this.replyAudio && this.nextTime > this.ctx.currentTime)
   }
   private flushPlayback() {
+    this.cancelTts()
     this.dropAudio = true
     this.replyAudio = false
     this.leftover = null
@@ -294,6 +303,42 @@ export class VoiceEngine {
     this.refreshState()
   }
 
+  // ---------- browser speech fallback ----------
+  private newTurn() {
+    this.turn++
+    this.gotAudio = false
+    this.cancelTts()
+  }
+  private cancelTts() {
+    clearTimeout(this.ttsTimer)
+    if (this.ttsActive) {
+      this.ttsActive = false
+      try { window.speechSynthesis?.cancel() } catch { /* unsupported */ }
+    }
+  }
+  /** After assistant_done: if no reply audio arrives shortly, speak the text with the browser. */
+  private scheduleFallback(id: number | null, text: string) {
+    const turn = this.turn
+    clearTimeout(this.ttsTimer)
+    if (this.muted || this.gotAudio || !text || id === null || !("speechSynthesis" in window)) return
+    this.ttsTimer = setTimeout(() => {
+      if (turn !== this.turn || this.gotAudio || this.muted) return
+      const synth = window.speechSynthesis
+      let u: SpeechSynthesisUtterance
+      try { u = new SpeechSynthesisUtterance(text) } catch { return }
+      const voices = synth.getVoices ? synth.getVoices() : []
+      const voice = voices.find((v) => v.lang === "en-IN") || voices.find((v) => v.lang === "en-GB")
+      if (voice) { u.voice = voice; u.lang = voice.lang } else u.lang = "en-IN"
+      const done = () => { if (this.ttsActive && turn === this.turn) { this.ttsActive = false; this.refreshState() } }
+      u.onend = done
+      u.onerror = done
+      this.ttsActive = true
+      this.updateMessage(id, (m) => ({ ...m, browserVoice: true }))
+      try { synth.cancel(); synth.speak(u) } catch { this.ttsActive = false }
+      this.refreshState()
+    }, 1500)
+  }
+
   // ---------- socket ----------
   private wsUrl(): string {
     return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/voice"
@@ -319,6 +364,7 @@ export class VoiceEngine {
         try { m = JSON.parse(ev.data) } catch { return }
         this.onEvent(m)
       } else {
+        if (!this.gotAudio) { this.gotAudio = true; this.cancelTts() }
         this.enqueue(ev.data as ArrayBuffer)
       }
     }
@@ -411,6 +457,7 @@ export class VoiceEngine {
             this.asstId = null
             this.thinking = true
             this.writeToolThisTurn = false
+            this.newTurn()
             this.refreshState()
           }
         } else {
@@ -426,12 +473,18 @@ export class VoiceEngine {
         this.refreshState()
         break
       }
-      case "assistant_done":
+      case "assistant_done": {
+        const doneId = this.asstId
         this.finishAssistant(m.text ? String(m.text) : undefined)
+        const last = this.snap.messages[this.snap.messages.length - 1]
+        const replyId = doneId ?? (last && last.role === "assistant" ? last.id : null)
+        const reply = this.snap.messages.find((x) => x.id === replyId)
+        this.scheduleFallback(replyId, reply ? reply.text : "")
         this.thinking = false
         this.setTool(null)
         this.refreshState()
         break
+      }
       case "citations":
         this.pendingSources = Array.isArray(m.sources) ? (m.sources as Source[]) : null
         break
@@ -445,6 +498,8 @@ export class VoiceEngine {
         }
         break
       case "audio_start":
+        this.gotAudio = true
+        this.cancelTts()
         this.dropAudio = false
         this.replyAudio = true
         this.leftover = null

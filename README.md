@@ -9,8 +9,14 @@ teachers (class requests, approvals). A history page lists past conversations.
 Live: https://kit.bixops.in. Test logins are provided by the organisers; no credentials or keys are in
 this repository.
 
+Interface: a React + TypeScript + Tailwind + shadcn/ui app (source in `ui/`, production build committed
+in `frontend/app`, served when `UI_VARIANT=app`). The classic no-build pages in `frontend/` remain the
+default fallback. The composer has text and voice modes, a live waveform while listening, Send what I
+said (sends the interim transcript now), Stop, a voice replies toggle, the sources behind each reply,
+and a history page of past conversations.
+
 Design documents: [PLAN.md](PLAN.md) (scope and choices), [CONTRACT.md](CONTRACT.md) (module
-interfaces and the WebSocket protocol), [ACCEPTANCE.md](ACCEPTANCE.md) (the criteria the tests prove).
+interfaces and the WebSocket protocol), [ACCEPTANCE.md](ACCEPTANCE.md) (the criteria the tests prove), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (components, one spoken turn, data model, trust boundaries), [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 
 ## Requirements and evidence
 
@@ -18,16 +24,38 @@ Criterion ids refer to ACCEPTANCE.md. Test files are in `backend/tests/`.
 
 | Requirement | Implemented in | Tested in |
 |---|---|---|
-| Voice conversation (must) | `backend/app/voice/session.py`, `deepgram.py`, `gate.py`; `frontend/static/voice.js`, `pcm-worklet.js` | `test_acc_voice_*` (VOX1-5), `test_security_websocket.py`, `scripts/fake_mic.py` for manual runs |
+| Voice conversation (must) | `backend/app/voice/session.py`, `deepgram.py`, `gate.py`; `ui/src/voice/engine.ts`, `ui/src/components/kit/voice-assistant.tsx` (classic: `frontend/static/voice.js`, `pcm-worklet.js`) | `test_acc_voice_*` (VOX1-5), `test_security_websocket.py`, `scripts/fake_mic.py` for manual runs |
 | Correct answers (must) | `backend/app/agent/loop.py`, `prompts.py`; `backend/app/knowledge/` (documents, RAG, citations) | `test_acc_knowledge_*` (DOC, CIT), `test_acc_agent_citations.py`, `test_acc_tools_dates.py` (COR1, COR2) |
 | Leave and on-duty requests (must) | `backend/app/agent/tools.py`, `confirm.py` | `test_acc_tools_leave.py` (COR3), `test_acc_tools_confirm.py` (AC8, COR7), `test_acc_tools_teacher.py` (AC9) |
-| Saved history (must) | `backend/app/history.py`; `frontend/history.html`, `static/history.js` | `test_spine_history*.py` (HIS1-3), `test_e2e_isolation_history.py` (AC3), `test_security_history_isolation.py` |
-| Placement registration (nice) | `agent/tools.py` (`register_for_placement_drive`, eligibility with reasons) | `test_acc_tools_placements.py` (COR4) |
-| Lesson doubts (nice) | lesson notes served by `knowledge/store.py`; `search_documents` in RAG mode | `test_acc_knowledge_boundaries.py` (DOC4), `test_acc_knowledge_rag.py` |
-| Admission enquiries and applications (nice) | `agent/tools.py` (`submit_admission_application`), `frontend/index.html`, `static/home.js` | `test_acc_tools_admissions.py` (COR5), `test_e2e_isolation_visitor.py` (AC1) |
+| Saved history (must) | `backend/app/history.py`, `schema.sql`; `ui/src/pages/history.tsx` (classic: `frontend/history.html`) | `test_spine_history*.py` (HIS1-3), `test_e2e_isolation_history.py` (AC3), `test_security_history_isolation.py` |
+| Placement registration (nice) | `agent/tools.py` (`list_placement_drives`, `register_for_placement_drive`, eligibility with reasons) | `test_acc_tools_placements.py` (COR4) |
+| Lesson doubts (nice) | lesson notes served by `knowledge/store.py` (students: own department); `search_documents` in RAG mode | `test_acc_knowledge_boundaries.py` (DOC4), `test_acc_knowledge_rag.py` |
+| Admission enquiries and applications (nice) | `agent/tools.py` (`submit_admission_application`); `ui/src/pages/home.tsx` (classic: `frontend/index.html`) | `test_acc_tools_admissions.py` (COR5), `test_e2e_isolation_visitor.py` (AC1) |
+| Still working if one AI service fails (nice) | Full-text search when embeddings fail (`knowledge/rag.py`); college client retries (`kit/client.py`); safe error messages with a usable socket (`voice/session.py`); typed input beside voice (`ui/`); state in Postgres; `Restart=always` in `deploy/kit-assistant.service`. Gemini model fallback (`agent/fallback.py`) and browser speech synthesis (`ui/src/voice/engine.ts`) | `test_acc_voice_failure.py`, `test_acc_kit_client.py`, `test_kit_client.py`, `test_acc_knowledge_rag.py` |
+| Public mode cannot see student data (must) | `agent/tools.py` role tool sets, `knowledge/store.py` `select_documents` (visitors get brochures only), `auth.py` | `test_acc_tools_gating.py`, `test_e2e_isolation_visitor.py` (AC1), `test_security_*` |
+| Speech-to-text through a speech service, not the browser's recognition | `backend/app/voice/deepgram.py` (server-side Deepgram Nova-3); the browser only captures PCM audio | `test_acc_voice_deepgram.py`, `test_acc_voice_*` |
 | Security and reliability | `auth.py`, `limits.py`, `moderation.py`, `main.py` | `test_security_*`, `test_e2e_isolation_*`, `test_limits_*`, `test_moderation_*`, `test_spine_network_guard.py` (REL2) |
-| Architecture and design | see Architecture below | `test_spine_*` for the shared foundations |
+| Architecture and design | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | `test_spine_*` for the shared foundations |
 | Code quality and tests | `make lint` (ruff), type hints and docstrings on public functions | `make test` |
+
+## Resilience
+
+The assistant keeps working when one service fails:
+
+- Embeddings unavailable: document search falls back to Postgres full-text ranking.
+- College API: GETs are retried; POSTs are retried only when they carry an idempotency key.
+- Every failure path (speech, model, college, moderation) returns a short safe message and leaves the
+  WebSocket usable for the next turn.
+- Microphone or speech recognition fails: typed input keeps working in the same conversation.
+- Sessions, history and pending actions are in Postgres and survive restarts; systemd restarts the
+  service automatically (`Restart=always`).
+- Second model provider: when the Claude call fails (`anthropic.APIError`) before anything was spoken,
+  `agent/fallback.py` makes one Gemini call (google-genai, `LLM_FALLBACK_MODEL`, default
+  `gemini-2.5-flash`, 12 s timeout, `LLM_FALLBACK_ENABLED`). It has no tools, so it answers only from the
+  documents and conversation and says that live lookups and actions are unavailable. The reply is
+  logged as a `fallback` tool call.
+- Browser speech synthesis: when the speech service returns no audio, `ui/src/voice/engine.ts` speaks
+  the reply with the browser's `speechSynthesis`, and the interface notes the browser voice is in use.
 
 ## Architecture
 
@@ -51,8 +79,9 @@ FastAPI app (voice/session.py)
 Browser plays audio; speaking over it sends an interrupt that cancels the reply
 ```
 
-Everything runs in one FastAPI process that also serves the static frontend (plain HTML and
-JavaScript, same origin, no build step). Caddy terminates TLS in front of it.
+Everything runs in one FastAPI process that also serves the frontend from the same origin: the classic
+no-build pages by default, or the built React app when `UI_VARIANT=app`. More detail in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Caddy terminates TLS in front of it.
 
 Module layout (`backend/app/`):
 
@@ -86,6 +115,13 @@ Design decisions:
   framework.
 
 ## Security and privacy
+
+An audit using Cloudflare's security-audit skill found no critical, high or medium issues; see
+[SECURITY_AUDIT.md](SECURITY_AUDIT.md). Main controls: role-based tool sets chosen server-side;
+confirm-before-write (an explicit approval as the latest message, expiry, idempotency keys); the
+session is re-validated on every voice turn; rate limits (visitors per IP, logged-in users per login
+id); moderation on input and output; output sanitising; a strict CSP; and prompt-injection handling of
+college data and documents. Details:
 
 - Access: visitors reach only the admissions brochure and public college data. Students and teachers
   reach only their own data; the college token is held server-side and every college call uses the
@@ -141,9 +177,9 @@ make lint
   `backend/tests/conftest.py` fails any test that opens a socket or does a DNS lookup to a real
   host (REL2, checked by `test_spine_network_guard.py`). The suite needs only local Postgres with
   pgvector.
-- Collected with `TEST_DATABASE_URL=postgresql://localhost:5432/kit_test_full`: 5398 tests, with 1
-  deselected (5399 in total), in 78 test files plus shared helpers and fakes. Many are parametrised
-  over roles and endpoints.
+- Full run: 5,390 passed, 0 failed, 97% line and branch coverage across 81 test files (plus shared
+  helpers and fakes). Many tests are parametrised over roles and endpoints. `make test` runs it all with
+  one command. The `test_e2e_isolation_*` suite drives the real assembled app with several users at once.
 - Suites by area (test file counts):
 
 | Area | Files | Covers |
@@ -187,6 +223,7 @@ The schema is applied at startup. Environment variables (see `.env.example` for 
 - Model: `ANTHROPIC_API_KEY`, `LLM_MODEL`, `LLM_EFFORT`, `LLM_KEEP_WARM`, `LLM_THINKING`,
   `HISTORY_WINDOW`, `MODERATION_LLM`
 - Speech: `DEEPGRAM_API_KEY`, `DG_STT_MODEL`, `DG_TTS_MODEL`
+- Model fallback: `LLM_FALLBACK_ENABLED`, `LLM_FALLBACK_MODEL`
 - Embeddings: `GEMINI_API_KEY`, `EMBED_MODEL`, `EMBED_DIM`
 - Storage and documents: `DATABASE_URL`, `DOC_MODE` (`context`, `rag` or `auto`),
   `DOC_CONTEXT_TOKEN_BUDGET`, `DOC_REFRESH_SECONDS`
@@ -196,7 +233,8 @@ The schema is applied at startup. Environment variables (see `.env.example` for 
   sizes, daily budgets), `VOICE_GATE_ENABLED`
 
 Two helper scripts: `scripts/chat.py` (text client) and `scripts/fake_mic.py` (streams recorded audio
-through the WebSocket as a microphone).
+through the WebSocket as a microphone). With `--login` they read the shared test password from
+`KIT_TEST_PASSWORD`. Web: also `UI_VARIANT` (`app` serves the React build).
 
 ## Deployment
 
@@ -215,13 +253,9 @@ Full steps, including the rollback script that restores the service stopped to f
 
 ## Not done yet
 
-- No backup providers. Speech (Deepgram) and the model (Anthropic) each have a single provider. What
-  exists is graceful handling: a failing speech or model call produces a short error to the user and
-  the WebSocket stays usable, and a failing college API gives a clear message. When embeddings are
-  unavailable, document search falls back to full-text ranking in Postgres. Without Deepgram or
-  Anthropic the assistant cannot answer by voice or text.
-- Rate-limit counters are in memory and reset when the service restarts. Conversations, history and
-  pending actions are in Postgres and survive restarts.
+- No second speech-recognition provider: if Deepgram is down, voice input fails (typed input still
+  works). The fallback model cannot call tools, so during a Claude outage actions and live lookups are unavailable.
+- Rate-limit counters are in memory and reset when the service restarts.
 - Reply latency is roughly two to four seconds, because the model thinks before answering.
 - The voice gate thresholds were tuned on synthetic audio, not on a range of real microphones and
   rooms; in a noisy room it may pass noise or clip quiet speech.

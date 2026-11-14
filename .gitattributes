@@ -1,0 +1,4 @@
+# Built interface (output of `cd ui && npm run build`), committed because the server has no Node.
+frontend/app/** linguist-generated=true
+uv.lock linguist-generated=true
+ui/package-lock.json linguist-generated=true

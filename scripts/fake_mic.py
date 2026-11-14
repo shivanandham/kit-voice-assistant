@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 import wave
@@ -29,7 +30,6 @@ from app.config import get_settings
 FRAME_BYTES = 640  # 20 ms of 16 kHz PCM16
 SILENCE_S = 1.5
 BARGE_IN_TEXT = "Sorry, actually, tell me about the hostel instead."
-PASSWORD = "Kit@2026"
 
 
 async def speech(client: httpx.AsyncClient, text: str) -> bytes:
@@ -55,7 +55,10 @@ async def session_cookie(base: str, login: str | None) -> str:
     async with httpx.AsyncClient(base_url=base, timeout=20) as c:
         await c.get("/")
         if login:
-            r = await c.post("/api/login", json={"login_id": login, "password": PASSWORD})
+            password = os.environ.get("KIT_TEST_PASSWORD")
+            if not password:
+                raise SystemExit("--login needs the test password in the KIT_TEST_PASSWORD environment variable")
+            r = await c.post("/api/login", json={"login_id": login, "password": password})
             r.raise_for_status()
         cookie = c.cookies.get("kit_session")
     if not cookie:

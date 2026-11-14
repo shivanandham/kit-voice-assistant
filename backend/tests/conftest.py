@@ -28,6 +28,8 @@ DUMMY_KEYS = {
     "DEEPGRAM_API_KEY": "test-deepgram-key-not-real",
     "GEMINI_API_KEY": "test-gemini-key-not-real",
 }
+# The model fallback (REL1) is off unless a test turns it on and injects a fake fallback client.
+os.environ["LLM_FALLBACK_ENABLED"] = "false"
 _REAL_KEY_ENV = {k: os.environ.get(k) for k in DUMMY_KEYS}
 os.environ.update(DUMMY_KEYS)
 

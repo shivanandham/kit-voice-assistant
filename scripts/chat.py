@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import secrets
 import sys
 import time
@@ -19,7 +20,13 @@ from app.agent import loop
 from app.auth import SessionCtx, _create_session
 from app.kit.client import KitClient
 
-PASSWORD = "Kit@2026"
+
+def _password() -> str:
+    """The shared test password, from the environment; exits with a clear message if unset."""
+    pw = os.environ.get("KIT_TEST_PASSWORD")
+    if not pw:
+        raise SystemExit("--login needs the test password in the KIT_TEST_PASSWORD environment variable")
+    return pw
 
 
 class _UsageLine(logging.Handler):
@@ -34,7 +41,7 @@ async def _session(login_id: str | None) -> SessionCtx:
     if not login_id:
         _, ctx = await _create_session(f"visitor:{secrets.token_hex(12)}", "visitor")
         return ctx
-    data = await KitClient().login(login_id, PASSWORD)
+    data = await KitClient().login(login_id, _password())
     user = data["user"]
     _, ctx = await _create_session(
         f"user:{user['login_id']}", user["role"], user, data["access_token"], data.get("expires_in")
@@ -45,7 +52,7 @@ async def _session(login_id: str | None) -> SessionCtx:
 async def main() -> None:
     """Initialise the database, open a session and chat until EOF or 'quit'."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--login", help="college login id (password Kit@2026); visitor if omitted")
+    parser.add_argument("--login", help="college login id (password from KIT_TEST_PASSWORD); visitor if omitted")
     parser.add_argument("--warm", action="store_true",
                         help="pre-warm the prompt cache first, as the app does at startup")
     args = parser.parse_args()

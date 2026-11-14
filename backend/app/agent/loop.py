@@ -13,7 +13,7 @@ from typing import Any
 import anthropic
 
 from app import history, moderation
-from app.agent import confirm, prompts, tools
+from app.agent import confirm, fallback, prompts, tools
 from app.auth import SessionCtx
 from app.config import get_settings
 from app.kit.client import college_today
@@ -476,6 +476,15 @@ async def _log_moderation(conversation_id: str, direction: str, category: str, s
         log.exception("could not log a moderation decision")
 
 
+async def _log_fallback(conversation_id: str, reason: str) -> None:
+    """Record that the fallback model answered this turn (the error class only)."""
+    try:
+        await history.log_tool_call(conversation_id, "fallback", {"reason": reason},
+                                    {"model": get_settings().llm_fallback_model}, False)
+    except Exception:
+        log.exception("could not log the fallback")
+
+
 async def _citations(ctx: SessionCtx, refs: list[str], used_tools: list[str]) -> list[dict]:
     """Document sources resolved for this user, then one college-record source per data tool."""
     sources: list[dict] = []
@@ -557,6 +566,7 @@ async def _turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> AsyncI
         classifier = asyncio.ensure_future(
             moderation.classify(_get_client(), settings.llm_model, user_text))
 
+    system: list[dict] | None = None
     try:
         if verdict is not None and verdict[0] != "ok":
             category = verdict[0]
@@ -682,8 +692,22 @@ async def _turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> AsyncI
     except anthropic.APIError as exc:
         log.error("anthropic error: %s %s %s", type(exc).__name__, getattr(exc, "status_code", ""),
                   str(getattr(exc, "message", ""))[:300])
-        await _save_partial(conversation_id, owner, messages, spoken, call_text, open_uses, ran)
-        yield {"type": "error", "message": ERROR_TEXT}
+        reply_text = None
+        if not spoken and not open_uses and settings.llm_fallback_enabled and system is not None:
+            reply_text = await fallback.answer(system, _trim(messages))
+        if reply_text is None:
+            await _save_partial(conversation_id, owner, messages, spoken, call_text, open_uses, ran)
+            yield {"type": "error", "message": ERROR_TEXT}
+            return
+        await _log_fallback(conversation_id, type(exc).__name__)
+        fb = _Speech(secrets=tuple(s for s in (ctx.kit_token,) if s))
+        for piece in fb.feed(reply_text) + fb.flush():
+            yield emit(piece)
+        reply = "".join(spoken).strip() or EMPTY_TEXT
+        _append(messages, "assistant", [{"type": "text", "text": reply}])
+        citations = await _citations(ctx, fb.refs(), [])
+        async for event in finish(reply, citations):
+            yield event
         return
     except Exception:
         log.exception("assistant turn failed")
@@ -691,8 +715,12 @@ async def _turn(ctx: SessionCtx, conversation_id: str, user_text: str) -> AsyncI
         yield {"type": "error", "message": ERROR_TEXT}
         return
     finally:
-        if classifier is not None and not classifier.done():
-            classifier.cancel()
+        if classifier is not None:
+            if classifier.done():
+                if not classifier.cancelled():
+                    classifier.exception()  # retrieve it so a failed classifier is not re-logged
+            else:
+                classifier.cancel()
 
     reply = "".join(spoken).strip()
     if not reply:

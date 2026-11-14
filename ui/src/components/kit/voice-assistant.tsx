@@ -168,6 +168,9 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
                     {m.confirm && <span className="text-xs font-semibold">Waiting for your confirmation</span>}
                     <span>{m.text}</span>
                     {m.streaming && !m.text && <Loader2Icon aria-hidden className="size-4 animate-spin" />}
+                    {m.browserVoice && (
+                      <span className="text-xs text-muted-foreground">Spoken with the browser voice (speech service unavailable)</span>
+                    )}
                     {m.role === "assistant" && <SourceList sources={m.sources} />}
                     {pending && (
                       <div className="mt-1 flex flex-wrap gap-2">

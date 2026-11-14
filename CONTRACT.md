@@ -13,7 +13,7 @@ if the module you depend on does not exist yet. If you must deviate, say so in y
   key values. Never put a key or the college token in anything sent to the browser or the LLM.
 - College sandbox: live **reads and logins are fine**; **no live writes** (no POST to admissions,
   requests, cancel, placement register, approve, reject). Mock them in tests.
-- Test logins (password `Kit@2026`): students `arjun priya kavya rahul karthik meena divya sneha`,
+- Test logins (the shared password is provided by the organisers and read from the environment as `KIT_TEST_PASSWORD`): students `arjun priya kavya rahul karthik meena divya sneha`,
   teachers `lakshmi senthil`.
 - Block docstrings on public functions, type hints, no dead code. Tests live in
   `backend/tests/test_<area>_*.py`; `conftest.py` belongs to the spine.

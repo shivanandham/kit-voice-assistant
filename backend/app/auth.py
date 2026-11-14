@@ -217,11 +217,11 @@ async def login(body: LoginBody, request: Request, response: Response) -> dict:
         data = await KitClient().login(body.login_id, body.password)
     except KitError as exc:
         if not exc.status or exc.status >= 500:  # status 0: unreachable or timed out
-            raise HTTPException(503, UNAVAILABLE)
+            raise HTTPException(503, UNAVAILABLE) from None
         limits.record_login_failure(body.login_id)
-        raise HTTPException(401, exc.message or "Login failed")
+        raise HTTPException(401, exc.message or "Login failed") from None
     except Exception:
-        raise HTTPException(503, UNAVAILABLE)
+        raise HTTPException(503, UNAVAILABLE) from None
 
     # The role and identity come only from the college's answer; refuse anything unexpected.
     user = data.get("user") if isinstance(data, dict) else None
