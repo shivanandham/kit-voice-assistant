@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
-import { Loader2Icon, MicIcon, PlusIcon, SendIcon, SquareIcon, XIcon } from "lucide-react"
+import { Loader2Icon, MicIcon, PlusIcon, SendIcon, SquareIcon, Volume2Icon, VolumeXIcon, XIcon } from "lucide-react"
 
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion"
 import { LevelBars } from "@/components/kit/level-bars"
@@ -59,6 +59,21 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
   }, [s.interim])
   useEffect(() => () => clearTimeout(sendTimer.current), [])
   const canSendNow = s.micOn && !!s.interim
+  const [muted, setMuted] = useState(() => { try { return localStorage.getItem("kit_voice_replies") === "off" } catch { return false } })
+  useEffect(() => { engine.setMuted(muted) }, [engine, muted])
+  const toggleMuted = () => {
+    const next = !muted
+    try { localStorage.setItem("kit_voice_replies", next ? "off" : "on") } catch { /* per-viewer convenience */ }
+    setMuted(next)
+  }
+  // A reply is in progress: thinking, text streaming (before its audio starts) or speaking.
+  const replying = s.canStop || s.messages.some((m) => m.streaming)
+  const stopButton = (
+    <Button type="button" variant="destructive" className="h-11 shrink-0 rounded-full px-4"
+      aria-label="Stop speaking" onClick={() => engine.stopSpeaking()}>
+      <SquareIcon aria-hidden className="fill-current" /><span className="hidden sm:inline">Stop speaking</span>
+    </Button>
+  )
   // Voice mode: focus the send button so Enter sends what was heard; back to the text field on close.
   const voiceSendRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -110,8 +125,13 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
           {s.status === "listening" && s.hearing && <Badge className="bg-primary/15 text-primary">Hearing you</Badge>}
           <span className="truncate text-sm text-muted-foreground">{HINT[s.status]}</span>
         </div>
+        <Button type="button" variant="ghost" size="sm" className="ml-auto shrink-0" aria-pressed={!muted}
+          onClick={toggleMuted} aria-label={muted ? "Voice replies off" : "Voice replies on"} title={muted ? "Voice replies off" : "Voice replies on"}>
+          {muted ? <VolumeXIcon aria-hidden /> : <Volume2Icon aria-hidden />}
+          <span className="hidden md:inline">{muted ? "Voice off" : "Voice on"}</span>
+        </Button>
         {s.messages.length > 0 && (
-          <Button type="button" variant="outline" size="sm" className="ml-auto shrink-0" onClick={() => engine.newConversation()}>
+          <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => engine.newConversation()}>
             <PlusIcon aria-hidden />New conversation
           </Button>
         )}
@@ -198,16 +218,10 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
               )}
               <LevelBars level={() => (s.status === "speaking" ? engine.outputLevel() : engine.inputLevel())} still={reduced} />
             </div>
-            {s.canStop && (
-              <Button type="button" variant="secondary" className="h-11 shrink-0 rounded-full"
-                onClick={() => engine.stopSpeaking()}>
-                <SquareIcon aria-hidden className="fill-current" /><span className="hidden sm:inline">Stop speaking</span><span className="sm:hidden">Stop</span>
-              </Button>
-            )}
-            <Button ref={voiceSendRef} type="button" size="icon" className="size-11 shrink-0 rounded-full"
+            {replying ? stopButton : <Button ref={voiceSendRef} type="button" size="icon" className="size-11 shrink-0 rounded-full"
               aria-label="Send what I said" aria-busy={sending} disabled={!canSendNow || sending} onClick={sendNow}>
               {sending ? <Loader2Icon aria-hidden className="animate-spin" /> : <SendIcon aria-hidden />}
-            </Button>
+            </Button>}
           </div>
         ) : (
           <form onSubmit={submit} className="flex items-end gap-2">
@@ -228,9 +242,11 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
               aria-describedby={left < 100 ? "vp-count" : undefined}
               className="max-h-32 min-h-11 resize-none bg-card"
             />
-            <Button type="submit" size="icon" className="size-11 shrink-0 rounded-full" aria-label="Send" disabled={!text.trim()}>
-              <SendIcon aria-hidden />
-            </Button>
+            {replying ? stopButton : (
+              <Button type="submit" size="icon" className="size-11 shrink-0 rounded-full" aria-label="Send" disabled={!text.trim()}>
+                <SendIcon aria-hidden />
+              </Button>
+            )}
           </form>
         )}
         {!s.micOn && left < 100 && (

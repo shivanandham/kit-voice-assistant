@@ -84,6 +84,7 @@ export class VoiceEngine {
   private pendingSources: Source[] | null = null
   private stopReconnect = false // server said the session timed out
   private writeToolThisTurn = false
+  private muted = false // voice replies off: incoming reply audio is not played
   // Level meters for the visual only (taps; they do not change the audio path).
   private inAnalyser: AnalyserNode | null = null
   private outAnalyser: AnalyserNode | null = null
@@ -138,6 +139,12 @@ export class VoiceEngine {
     try { sessionStorage.removeItem(STORE_KEY) } catch { /* storage unavailable */ }
     this.emit({ messages: [], interim: "", error: "", tool: null })
     this.refreshState()
+  }
+
+  /** Voice replies on/off. Off: reply audio frames are dropped locally (no protocol change). */
+  setMuted(muted: boolean): void {
+    this.muted = muted
+    if (muted) this.flushPlayback()
   }
 
   /** Stop speaking button. */
@@ -252,7 +259,7 @@ export class VoiceEngine {
   }
   private enqueue(buf: ArrayBuffer) {
     const ctx = this.ctx
-    if (this.dropAudio || !ctx) return
+    if (this.dropAudio || !ctx || this.muted) return
     let bytes = new Uint8Array(buf)
     if (this.leftover !== null) {
       const m = new Uint8Array(bytes.length + 1)
