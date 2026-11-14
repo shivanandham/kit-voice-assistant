@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
-import { Loader2Icon, MicIcon, MicOffIcon, SendIcon, SquareIcon } from "lucide-react"
+import { Loader2Icon, MicIcon, SendIcon, SquareIcon, XIcon } from "lucide-react"
 
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion"
+import { LevelBars } from "@/components/kit/level-bars"
 import { SourceList } from "@/components/kit/source-list"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -23,8 +24,8 @@ const LABEL: Record<VoiceStatus, string> = {
   idle: "Ready", listening: "Listening", thinking: "Thinking", speaking: "Speaking",
 }
 const HINT: Record<VoiceStatus, string> = {
-  idle: "Press Start talking and ask your question, or type below.",
-  listening: "Just speak. You can talk over the assistant to interrupt.",
+  idle: "Type below, or press the microphone to talk.",
+  listening: "Just speak. Press send to send now; Escape closes voice mode.",
   thinking: "Working on it. Press Stop to cancel.",
   speaking: "Press Stop speaking, or just start talking.",
 }
@@ -58,6 +59,19 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
   }, [s.interim])
   useEffect(() => () => clearTimeout(sendTimer.current), [])
   const canSendNow = s.micOn && !!s.interim
+  // Voice mode: focus the send button so Enter sends what was heard; back to the text field on close.
+  const voiceSendRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (s.micOn) voiceSendRef.current?.focus()
+    else document.getElementById("vp-text")?.focus({ preventScroll: true })
+  }, [s.micOn])
+  // Escape leaves voice mode wherever focus is (the send button may be disabled while sending).
+  useEffect(() => {
+    if (!s.micOn) return
+    const onEsc = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); engine.toggleTalk() } }
+    document.addEventListener("keydown", onEsc)
+    return () => document.removeEventListener("keydown", onEsc)
+  }, [s.micOn, engine])
   const sendNow = () => {
     if (sending || !engine.finalize()) return
     setSending(true)
@@ -77,11 +91,11 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
   return (
     <section
       aria-label="Voice assistant"
-      className={cn("flex flex-col overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm", className)}
+      className={cn("flex flex-col overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-sm", tall ? "h-[calc(100dvh-12rem)] min-h-[26rem]" : "h-[min(70vh,640px)] min-h-[26rem]", className)}
     >
-      {/* Primary control and live visual */}
-      <div className="flex flex-col items-center gap-4 border-b px-4 pt-6 pb-5 sm:flex-row sm:items-center sm:gap-6 sm:px-6">
-        <div className="size-32 shrink-0 sm:size-36" aria-hidden>
+      {/* Compact status line; the conversation gets the room */}
+      <div className="flex items-center gap-3 border-b px-4 py-2.5 sm:px-6">
+        <div className="size-9 shrink-0" aria-hidden>
           {reduced ? (
             <StaticOrb status={s.status} />
           ) : (
@@ -91,34 +105,10 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
             </Suspense>
           )}
         </div>
-        <div className="flex w-full min-w-0 flex-col items-center gap-3 sm:items-start">
-          <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-            <span className="text-lg font-semibold">{LABEL[s.status]}</span>
-            {s.status === "listening" && s.hearing && (
-              <Badge className="bg-primary/15 text-primary">Hearing you</Badge>
-            )}
-          </div>
-          <p className="text-center text-sm text-muted-foreground sm:text-left">{HINT[s.status]}</p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button
-              type="button"
-              size="lg"
-              aria-pressed={s.micOn}
-              onClick={() => engine.toggleTalk()}
-              variant={s.micOn ? "outline" : "default"}
-              className="h-12 rounded-full px-6 text-base"
-            >
-              {s.micOn ? <MicOffIcon aria-hidden /> : <MicIcon aria-hidden />}
-              {s.micOn ? "End conversation" : "Start talking"}
-            </Button>
-            {s.canStop && (
-              <Button type="button" size="lg" variant="secondary" className="h-12 rounded-full px-5"
-                onClick={() => engine.stopSpeaking()}>
-                <SquareIcon aria-hidden className="fill-current" />
-                {s.status === "speaking" ? "Stop speaking" : "Stop"}
-              </Button>
-            )}
-          </div>
+        <div role="status" aria-live="polite" className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+          <span className="font-semibold">{LABEL[s.status]}</span>
+          {s.status === "listening" && s.hearing && <Badge className="bg-primary/15 text-primary">Hearing you</Badge>}
+          <span className="truncate text-sm text-muted-foreground">{HINT[s.status]}</span>
         </div>
       </div>
 
@@ -129,7 +119,7 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
       )}
 
       {/* Conversation log */}
-      <Conversation className={cn("min-h-0", tall ? "h-[min(30rem,52vh)]" : "h-[min(22rem,48vh)]")} aria-label="Conversation">
+      <Conversation className="min-h-0 flex-1" aria-label="Conversation">
         <ConversationContent className="flex flex-col gap-1 px-4 sm:px-6">
           {s.messages.length === 0 ? (
             <ConversationEmptyState
@@ -142,9 +132,9 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
               return (
                 <Message key={m.id} from={m.role} className="py-2">
                   <MessageContent
-                    variant={m.role === "user" ? "contained" : "flat"}
+                    variant="flat"
                     className={cn(
-                      "text-[0.95rem] leading-relaxed whitespace-pre-wrap",
+                      "text-[0.95rem] leading-relaxed whitespace-pre-wrap group-[.is-user]:bg-primary/10 group-[.is-user]:rounded-2xl",
                       m.role === "assistant" && "max-w-[92%]",
                       m.confirm && "rounded-xl border border-confirm-border bg-confirm px-4 py-3 text-confirm-foreground",
                     )}
@@ -180,7 +170,7 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
         <ConversationScrollButton aria-label="Scroll to latest message" />
       </Conversation>
 
-      {/* Typed input, an equal alternative to voice */}
+      {/* Composer: text mode (mic, field, send) or voice mode (close, waveform, stop, send now) */}
       <div className="flex flex-col gap-2 border-t bg-muted/40 px-4 py-3 sm:px-6">
         {suggestions.length > 0 && (
           <Suggestions aria-label="Suggested questions">
@@ -189,37 +179,56 @@ export function VoiceAssistant({ suggestions = [], className, tall }: Props) {
             ))}
           </Suggestions>
         )}
-        {canSendNow && (
-          <div className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2">
-            <p className="min-w-0 flex-1 truncate text-sm" aria-live="off">
-              <span className="sr-only">Heard so far: </span>“{s.interim}”
-            </p>
-            <Button type="button" size="sm" className="shrink-0 rounded-full" onClick={sendNow}
-              disabled={sending} aria-busy={sending} aria-label="Send what I said">
+        {s.micOn ? (
+          <div className="flex items-center gap-2" data-testid="voice-composer">
+            <Button type="button" size="icon" variant="outline" className="size-11 shrink-0 rounded-full"
+              aria-label="Close voice mode" onClick={() => engine.toggleTalk()}>
+              <XIcon aria-hidden />
+            </Button>
+            <div className="flex min-h-11 min-w-0 flex-1 flex-col justify-center rounded-md border bg-card px-3 py-1">
+              {s.interim ? (
+                <p className="truncate text-sm" aria-live="off"><span className="sr-only">Heard so far: </span>{s.interim}</p>
+              ) : (
+                <p className="truncate text-xs text-muted-foreground">{s.status === "speaking" ? "Assistant is speaking" : "Listening…"}</p>
+              )}
+              <LevelBars level={() => (s.status === "speaking" ? engine.outputLevel() : engine.inputLevel())} still={reduced} />
+            </div>
+            {s.canStop && (
+              <Button type="button" variant="secondary" className="h-11 shrink-0 rounded-full"
+                onClick={() => engine.stopSpeaking()}>
+                <SquareIcon aria-hidden className="fill-current" /><span className="hidden sm:inline">Stop speaking</span><span className="sm:hidden">Stop</span>
+              </Button>
+            )}
+            <Button ref={voiceSendRef} type="button" size="icon" className="size-11 shrink-0 rounded-full"
+              aria-label="Send what I said" aria-busy={sending} disabled={!canSendNow || sending} onClick={sendNow}>
               {sending ? <Loader2Icon aria-hidden className="animate-spin" /> : <SendIcon aria-hidden />}
-              {sending ? "Sending…" : "Send"}
             </Button>
           </div>
+        ) : (
+          <form onSubmit={submit} className="flex items-end gap-2">
+            <Button type="button" size="icon" className="size-11 shrink-0 rounded-full"
+              aria-label="Talk: switch to voice" onClick={() => engine.toggleTalk()}>
+              <MicIcon aria-hidden />
+            </Button>
+            <label htmlFor="vp-text" className="sr-only">Type a message</label>
+            <Textarea
+              id="vp-text"
+              rows={1}
+              maxLength={MAX_TYPED}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={onKey}
+              placeholder="Type your message"
+              autoComplete="off"
+              aria-describedby={left < 100 ? "vp-count" : undefined}
+              className="max-h-32 min-h-11 resize-none bg-card"
+            />
+            <Button type="submit" size="icon" className="size-11 shrink-0 rounded-full" aria-label="Send" disabled={!text.trim()}>
+              <SendIcon aria-hidden />
+            </Button>
+          </form>
         )}
-        <form onSubmit={submit} className="flex items-end gap-2">
-          <label htmlFor="vp-text" className="sr-only">Type a message</label>
-          <Textarea
-            id="vp-text"
-            rows={1}
-            maxLength={MAX_TYPED}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={onKey}
-            placeholder="Or type your message"
-            autoComplete="off"
-            aria-describedby={left < 100 ? "vp-count" : undefined}
-            className="max-h-32 min-h-11 resize-none bg-card"
-          />
-          <Button type="submit" size="icon" className="size-11 shrink-0" aria-label={!text.trim() && canSendNow ? "Send what I said" : "Send"} disabled={(!text.trim() && !canSendNow) || (!text.trim() && sending)}>
-            <SendIcon aria-hidden />
-          </Button>
-        </form>
-        {left < 100 && (
+        {!s.micOn && left < 100 && (
           <p id="vp-count" className={cn("text-right text-xs text-muted-foreground", left < 20 && "text-destructive")}>
             {left} characters left
           </p>

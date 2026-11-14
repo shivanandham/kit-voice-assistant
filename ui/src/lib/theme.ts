@@ -3,8 +3,9 @@ import { useEffect, useState } from "react"
 export type Theme = "light" | "dark"
 const KEY = "kit_theme"
 
+// Light by default whatever the system says; dark only when chosen with the toggle.
 function systemTheme(): Theme {
-  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+  return "light"
 }
 
 function stored(): Theme | null {
@@ -26,13 +27,6 @@ export function useTheme(): [Theme, () => void] {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark")
   }, [theme])
-  useEffect(() => {
-    if (stored() || !window.matchMedia) return
-    const mq = window.matchMedia("(prefers-color-scheme: dark)")
-    const on = () => { if (!stored()) setTheme(mq.matches ? "dark" : "light") }
-    mq.addEventListener("change", on)
-    return () => mq.removeEventListener("change", on)
-  }, [])
   const toggle = () => {
     const next: Theme = theme === "dark" ? "light" : "dark"
     try { localStorage.setItem(KEY, next) } catch { /* per-viewer convenience only */ }

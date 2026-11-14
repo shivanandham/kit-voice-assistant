@@ -20,7 +20,7 @@ export function AssistantPage() {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8">
+      <main className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-5">
         {!me ? <Skeleton className="h-14 w-full" /> : (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
